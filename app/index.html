@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sky &middot; Weather in your area</title>
+<style>
+  /* -------------------------------------------------------------------------
+     Sky — a small weather app.
+     Deliberately a single visual world: the background *is* the sky and
+     shifts with the current conditions and time of day. Type is a reliable
+     system stack (chosen over a heavy embedded webfont for a tool people
+     open quickly), with tabular numerals so the big readings stay steady.
+     Data: Open-Meteo (free, no API key). Location: browser geolocation,
+     with a manual search fallback.
+     ------------------------------------------------------------------------- */
+  :root {
+    --sky-top:    #2b5c8a;
+    --sky-bottom: #6a9fc4;
+    --ink:        #f3f8ff;
+    --ink-soft:   rgba(243, 248, 255, 0.72);
+    --ink-faint:  rgba(243, 248, 255, 0.5);
+    --panel:      rgba(255, 255, 255, 0.12);
+    --panel-line: rgba(255, 255, 255, 0.22);
+    --shadow:     0 20px 60px rgba(6, 20, 38, 0.35);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: linear-gradient(160deg, var(--sky-top) 0%, var(--sky-bottom) 100%);
+    background-attachment: fixed;
+    transition: background 1.2s ease;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(18px, 4vw, 40px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body, .card, .chip { transition: none !important; }
+  }
+
+  /* ---- Top bar: brand + location search ---- */
+  .topbar {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    margin-bottom: clamp(20px, 5vw, 44px);
+  }
+  .brand {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--serif);
+    font-size: 22px;
+    letter-spacing: 0.02em;
+  }
+  .brand small {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .search {
+    display: flex; gap: 8px; align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 999px;
+    padding: 6px 6px 6px 16px;
+    backdrop-filter: blur(8px);
+  }
+  .search input {
+    border: 0; background: transparent; outline: none;
+    color: var(--ink); font-size: 14px; width: 150px;
+    font-family: var(--sans);
+  }
+  .search input::placeholder { color: var(--ink-faint); }
+  .search button, .geo-btn {
+    border: 0; cursor: pointer;
+    background: rgba(255,255,255,0.9);
+    color: #12324f;
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 13px; font-weight: 600;
+    font-family: var(--sans);
+    transition: transform 0.12s ease, background 0.2s ease;
+  }
+  .search button:hover, .geo-btn:hover { transform: translateY(-1px); }
+  .search button:focus-visible, .geo-btn:focus-visible,
+  .search input:focus-visible {
+    outline: 2px solid #fff; outline-offset: 2px;
+  }
+
+  /* ---- Hero: the current conditions ---- */
+  .hero {
+    width: 100%; max-width: 720px;
+    text-align: center;
+    margin-bottom: clamp(24px, 5vw, 44px);
+  }
+  .place {
+    font-family: var(--serif);
+    font-size: clamp(24px, 6vw, 40px);
+    text-wrap: balance;
+    margin: 0 0 2px;
+  }
+  .asof { color: var(--ink-faint); font-size: 13px; letter-spacing: 0.02em; }
+  .glyph { font-size: clamp(64px, 18vw, 120px); line-height: 1; margin: 10px 0 0; }
+  .temp {
+    font-size: clamp(72px, 22vw, 148px);
+    font-weight: 200;
+    line-height: 0.95;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    margin: 4px 0;
+  }
+  .temp sup { font-size: 0.3em; font-weight: 400; vertical-align: super; top: -0.6em; }
+  .cond { font-size: clamp(17px, 4vw, 22px); color: var(--ink-soft); }
+  .feels { color: var(--ink-faint); font-size: 14px; margin-top: 6px; }
+
+  /* ---- Stat chips ---- */
+  .chips {
+    width: 100%; max-width: 720px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: clamp(20px, 4vw, 36px);
+  }
+  .chip {
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 16px;
+    padding: 14px 12px;
+    text-align: center;
+    backdrop-filter: blur(8px);
+  }
+  .chip .k { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+  .chip .v { font-size: 20px; font-weight: 600; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  @media (max-width: 520px) { .chips { grid-template-columns: repeat(2, 1fr); } }
+
+  /* ---- Cards (hourly + daily) ---- */
+  .card {
+    width: 100%; max-width: 720px;
+    background: var(--panel);
+    border: 1px solid var(--panel-line);
+    border-radius: 20px;
+    padding: 18px;
+    backdrop-filter: blur(8px);
+    box-shadow: var(--shadow);
+    margin-bottom: 18px;
+  }
+  .card h2 {
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600; margin: 2px 4px 14px;
+  }
+  .hourly {
+    display: flex; gap: 6px; overflow-x: auto;
+    padding-bottom: 6px; scroll-snap-type: x proximity;
+  }
+  .hourly::-webkit-scrollbar { height: 6px; }
+  .hourly::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 999px; }
+  .hour {
+    flex: 0 0 auto; width: 62px; text-align: center;
+    padding: 8px 4px; border-radius: 12px; scroll-snap-align: start;
+  }
+  .hour .t { font-size: 12px; color: var(--ink-faint); }
+  .hour .g { font-size: 24px; margin: 6px 0; }
+  .hour .d { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .hour .p { font-size: 11px; color: var(--ink-faint); }
+
+  .daily .day {
+    display: grid;
+    grid-template-columns: 1.4fr 0.6fr 1fr 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 6px;
+    border-top: 1px solid var(--panel-line);
+  }
+  .daily .day:first-child { border-top: 0; }
+  .daily .name { font-weight: 600; }
+  .daily .g { font-size: 22px; text-align: center; }
+  .daily .rng { text-align: right; font-variant-numeric: tabular-nums; }
+  .daily .rng .lo { color: var(--ink-faint); }
+  .daily .bar {
+    height: 5px; border-radius: 999px;
+    background: linear-gradient(90deg, #7fb0d8, #ffd48a);
+    opacity: 0.85;
+  }
+
+  /* ---- States ---- */
+  .status {
+    width: 100%; max-width: 720px;
+    text-align: center; color: var(--ink-soft);
+    padding: 40px 20px; font-size: 15px;
+  }
+  .status .geo-btn { margin-top: 16px; }
+  .hidden { display: none !important; }
+  footer {
+    color: var(--ink-faint); font-size: 12px;
+    margin-top: auto; padding-top: 28px; text-align: center;
+  }
+  footer a { color: var(--ink-soft); }
+  .spin {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid var(--panel-line); border-top-color: #fff;
+    animation: spin 0.9s linear infinite; margin: 0 auto 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">Sky<small>weather in your area</small></div>
+    <form class="search" id="searchForm">
+      <input id="searchInput" type="text" placeholder="Search a town or city" autocomplete="off">
+      <button type="submit">Go</button>
+      <button type="button" class="geo-btn" id="geoBtn" title="Use my location">&#128205;</button>
+    </form>
+  </div>
+
+  <div class="status" id="status">
+    <div class="spin"></div>
+    Getting the weather for your area&hellip;
+  </div>
+
+  <main id="app" class="hidden">
+    <section class="hero">
+      <h1 class="place" id="place">&mdash;</h1>
+      <div class="asof" id="asof"></div>
+      <div class="glyph" id="glyph">&#9925;</div>
+      <div class="temp" id="temp">&mdash;<sup id="tempUnit">&deg;C</sup></div>
+      <div class="cond" id="cond">&mdash;</div>
+      <div class="feels" id="feels"></div>
+    </section>
+
+    <section class="chips">
+      <div class="chip"><div class="k">Feels like</div><div class="v" id="cFeels">&mdash;</div></div>
+      <div class="chip"><div class="k">Humidity</div><div class="v" id="cHum">&mdash;</div></div>
+      <div class="chip"><div class="k">Wind</div><div class="v" id="cWind">&mdash;</div></div>
+      <div class="chip"><div class="k">Rain chance</div><div class="v" id="cRain">&mdash;</div></div>
+    </section>
+
+    <section class="card">
+      <h2>Next 24 hours</h2>
+      <div class="hourly" id="hourly"></div>
+    </section>
+
+    <section class="card daily">
+      <h2>7-day forecast</h2>
+      <div id="daily"></div>
+    </section>
+  </main>
+
+  <footer>
+    Data by <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
+    &middot; Companion app for the Keyestudio ESP32 Weather Station
+  </footer>
+
+<script>
+(() => {
+  "use strict";
+
+  // --- WMO weather code -> label + emoji glyph (day/night aware) ---
+  const WMO = {
+    0:  ["Clear sky",        "☀️", "🌑"],
+    1:  ["Mainly clear",     "🌤️", "🌑"],
+    2:  ["Partly cloudy",    "⛅",       "☁️"],
+    3:  ["Overcast",         "☁️", "☁️"],
+    45: ["Fog",              "🌫️", "🌫️"],
+    48: ["Rime fog",         "🌫️", "🌫️"],
+    51: ["Light drizzle",    "🌦️", "🌦️"],
+    53: ["Drizzle",          "🌦️", "🌦️"],
+    55: ["Heavy drizzle",    "🌧️", "🌧️"],
+    56: ["Freezing drizzle", "🌨️", "🌨️"],
+    57: ["Freezing drizzle", "🌨️", "🌨️"],
+    61: ["Light rain",       "🌦️", "🌦️"],
+    63: ["Rain",             "🌧️", "🌧️"],
+    65: ["Heavy rain",       "🌧️", "🌧️"],
+    66: ["Freezing rain",    "🌨️", "🌨️"],
+    67: ["Freezing rain",    "🌨️", "🌨️"],
+    71: ["Light snow",       "🌨️", "🌨️"],
+    73: ["Snow",             "❄️", "❄️"],
+    75: ["Heavy snow",       "❄️", "❄️"],
+    77: ["Snow grains",      "❄️", "❄️"],
+    80: ["Rain showers",     "🌦️", "🌦️"],
+    81: ["Rain showers",     "🌧️", "🌧️"],
+    82: ["Violent showers",  "⛈️", "⛈️"],
+    85: ["Snow showers",     "🌨️", "🌨️"],
+    86: ["Snow showers",     "🌨️", "🌨️"],
+    95: ["Thunderstorm",     "⛈️", "⛈️"],
+    96: ["Storm + hail",     "⛈️", "⛈️"],
+    99: ["Storm + hail",     "⛈️", "⛈️"]
+  };
+
+  // Background gradients keyed by a coarse sky bucket.
+  const SKIES = {
+    clearDay:  ["#2b7bb9", "#8ec5e6"],
+    clearNight:["#0d1b3a", "#28345e"],
+    cloudDay:  ["#5f7a8f", "#9db4c4"],
+    cloudNight:["#1b2436", "#3a4761"],
+    rain:      ["#37506a", "#5f7d94"],
+    snow:      ["#6b7f95", "#c3d3e0"],
+    storm:     ["#232a44", "#454d6b"],
+    fog:       ["#5c6672", "#98a4b0"]
+  };
+
+  function skyFor(code, isDay) {
+    if ([95, 96, 99].includes(code)) return SKIES.storm;
+    if ([45, 48].includes(code)) return SKIES.fog;
+    if ([71,73,75,77,85,86].includes(code)) return SKIES.snow;
+    if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return SKIES.rain;
+    if ([2,3].includes(code)) return isDay ? SKIES.cloudDay : SKIES.cloudNight;
+    return isDay ? SKIES.clearDay : SKIES.clearNight;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const statusEl = $("status");
+  const appEl = $("app");
+  let unit = "celsius";
+  const uSym = () => unit === "fahrenheit" ? "°F" : "°C";
+  const uSpeed = () => unit === "fahrenheit" ? "mph" : "km/h";
+
+  function showStatus(html, withRetry) {
+    statusEl.innerHTML = html + (withRetry
+      ? '<div><button class="geo-btn" id="retryBtn">Search a place instead</button></div>' : "");
+    statusEl.classList.remove("hidden");
+    appEl.classList.add("hidden");
+    const r = $("retryBtn");
+    if (r) r.onclick = () => $("searchInput").focus();
+  }
+
+  function setSky(code, isDay) {
+    const [a, b] = skyFor(code, isDay);
+    document.body.style.setProperty("--sky-top", a);
+    document.body.style.setProperty("--sky-bottom", b);
+  }
+
+  // --- Geocoding via Open-Meteo (no key needed) ---
+  async function geocode(name) {
+    const url = "https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&format=json&name="
+      + encodeURIComponent(name);
+    const r = await fetch(url);
+    const j = await r.json();
+    if (!j.results || !j.results.length) throw new Error("Place not found");
+    const p = j.results[0];
+    return { lat: p.latitude, lon: p.longitude,
+             label: [p.name, p.admin1, p.country_code].filter(Boolean).join(", ") };
+  }
+
+  // --- Forecast via Open-Meteo ---
+  async function loadWeather(lat, lon, label) {
+    showStatus('<div class="spin"></div>Loading the latest forecast&hellip;', false);
+    const url = "https://api.open-meteo.com/v1/forecast"
+      + "?latitude=" + lat + "&longitude=" + lon
+      + "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,precipitation"
+      + "&hourly=temperature_2m,weather_code,precipitation_probability"
+      + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+      + "&timezone=auto&forecast_days=7"
+      + "&temperature_unit=" + unit
+      + "&wind_speed_unit=" + (unit === "fahrenheit" ? "mph" : "kmh");
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("Weather service error");
+    const d = await r.json();
+    render(d, label);
+  }
+
+  function render(d, label) {
+    const c = d.current;
+    const isDay = c.is_day === 1;
+    const info = WMO[c.weather_code] || ["—", "☁️", "☁️"];
+    setSky(c.weather_code, isDay);
+
+    $("place").textContent = label;
+    $("asof").textContent = "Updated " + new Date(c.time).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+    $("glyph").textContent = isDay ? info[1] : info[2];
+    $("temp").innerHTML = Math.round(c.temperature_2m) + '<sup>' + uSym() + '</sup>';
+    $("cond").textContent = info[0];
+    $("feels").textContent = "";
+
+    $("cFeels").textContent = Math.round(c.apparent_temperature) + uSym();
+    $("cHum").textContent = c.relative_humidity_2m + "%";
+    $("cWind").textContent = Math.round(c.wind_speed_10m) + " " + uSpeed();
+    const rainNow = (d.daily.precipitation_probability_max && d.daily.precipitation_probability_max[0]);
+    $("cRain").textContent = (rainNow != null ? rainNow : 0) + "%";
+
+    // Hourly: next 24 from the current hour.
+    const hEl = $("hourly");
+    hEl.innerHTML = "";
+    const now = new Date(c.time);
+    let start = d.hourly.time.findIndex(t => new Date(t) >= now);
+    if (start < 0) start = 0;
+    for (let i = start; i < start + 24 && i < d.hourly.time.length; i++) {
+      const hi = WMO[d.hourly.weather_code[i]] || ["", "☁️", "☁️"];
+      const t = new Date(d.hourly.time[i]);
+      const hourDay = t.getHours() >= 6 && t.getHours() < 20;
+      const pop = d.hourly.precipitation_probability ? d.hourly.precipitation_probability[i] : null;
+      const cell = document.createElement("div");
+      cell.className = "hour";
+      cell.innerHTML =
+        '<div class="t">' + (i === start ? "Now" : t.toLocaleTimeString([], {hour: "numeric"})) + '</div>' +
+        '<div class="g">' + (hourDay ? hi[1] : hi[2]) + '</div>' +
+        '<div class="d">' + Math.round(d.hourly.temperature_2m[i]) + "°" + '</div>' +
+        '<div class="p">' + (pop != null ? pop + "%" : "") + '</div>';
+      hEl.appendChild(cell);
+    }
+
+    // Daily: 7 days, with a min-max range bar scaled across the week.
+    const dEl = $("daily");
+    dEl.innerHTML = "";
+    const highs = d.daily.temperature_2m_max, lows = d.daily.temperature_2m_min;
+    const wkMin = Math.min(...lows), wkMax = Math.max(...highs);
+    const span = Math.max(1, wkMax - wkMin);
+    for (let i = 0; i < d.daily.time.length; i++) {
+      const di = WMO[d.daily.weather_code[i]] || ["", "☁️", "☁️"];
+      const dt = new Date(d.daily.time[i]);
+      const name = i === 0 ? "Today" : dt.toLocaleDateString([], {weekday: "short"});
+      const left = ((lows[i] - wkMin) / span) * 100;
+      const width = ((highs[i] - lows[i]) / span) * 100;
+      const row = document.createElement("div");
+      row.className = "day";
+      row.innerHTML =
+        '<div class="name">' + name + '</div>' +
+        '<div class="g">' + di[1] + '</div>' +
+        '<div class="bar" style="margin-left:' + left.toFixed(0) + '%;width:' + Math.max(8, width).toFixed(0) + '%"></div>' +
+        '<div class="rng"><span class="lo">' + Math.round(lows[i]) + "°</span> " +
+          Math.round(highs[i]) + "°</div>";
+      dEl.appendChild(row);
+    }
+
+    statusEl.classList.add("hidden");
+    appEl.classList.remove("hidden");
+  }
+
+  // --- Entry points ---
+  function useGeolocation() {
+    showStatus('<div class="spin"></div>Finding your location&hellip;', false);
+    if (!navigator.geolocation) {
+      showStatus("Your browser can't share a location. Search for a place instead.", true);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          await loadWeather(latitude.toFixed(4), longitude.toFixed(4), "Your location");
+        } catch (e) {
+          showStatus("Couldn't load the weather (" + e.message + "). Try searching a place.", true);
+        }
+      },
+      () => showStatus("Location access was blocked. Search for your town or city instead.", true),
+      { timeout: 10000, maximumAge: 600000 }
+    );
+  }
+
+  async function useSearch(name) {
+    showStatus('<div class="spin"></div>Looking up "' + name + '"&hellip;', false);
+    try {
+      const p = await geocode(name);
+      await loadWeather(p.lat, p.lon, p.label);
+    } catch (e) {
+      showStatus('Couldn’t find "' + name + '". Check the spelling and try again.', true);
+    }
+  }
+
+  $("searchForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("searchInput").value.trim();
+    if (v) useSearch(v);
+  });
+  $("geoBtn").addEventListener("click", useGeolocation);
+
+  // Kick off with geolocation on first load.
+  useGeolocation();
+})();
+</script>
+</body>
+</html>
