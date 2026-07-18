@@ -1,13 +1,29 @@
 # ESP32 Weather Station 🌦️
 
 A weather station for the **Keyestudio ESP32** (works on most ESP32 dev boards).
-It pulls the **live weather for your area** from the internet and shows it in a
-small **web app** that you open in any browser on your WiFi — plus it prints to
-the Arduino IDE Serial Monitor.
+It pulls the **live weather for your area** from the internet and prints it
+straight to the **Arduino IDE Serial Monitor**, refreshing on a timer.
+No website, no browser — just the Serial Monitor.
 
 No sensors and no soldering are required — the weather comes from
 [Open-Meteo](https://open-meteo.com), a **free** API that needs **no account and
 no API key**.
+
+Example of what the Serial Monitor shows:
+
+```
+========================================
+  WEATHER FOR London
+========================================
+  Conditions : Partly cloudy
+  Temperature: 18.4 C
+  Feels like : 17.9 C
+  Humidity   : 64 %
+  Wind       : 11.2 mph from SW
+  Rain       : 0.0 mm
+  Updated    : 2026-07-18T15:00
+========================================
+```
 
 ---
 
@@ -50,7 +66,7 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 const float LATITUDE  = 51.5074;     // <- your latitude
 const float LONGITUDE = -0.1278;     // <- your longitude
-const char* LOCATION_NAME = "London";// <- a label for the app
+const char* LOCATION_NAME = "London";// <- a label for the printout
 ```
 
 **Finding your latitude / longitude:** open [Google Maps](https://maps.google.com),
@@ -71,19 +87,14 @@ const bool USE_MPH        = true;    // false = km/h
 3. **Tools → Port →** select the port your board shows up on.
 4. Click **Upload** (the arrow ➜).
 
-## Step 6 — Open the app
+## Step 6 — See the weather
 
-1. Open **Tools → Serial Monitor** and set the baud rate to **115200**
-   (bottom-right of the Serial Monitor).
-2. Wait for it to connect. It prints something like:
-   ```
-   [wifi] IP address: 192.168.1.42
-   ```
-3. Type that IP address into a browser (phone or laptop on the same WiFi):
-   **`http://192.168.1.42`**
+- Open **Tools → Serial Monitor** and set the baud rate to **115200**
+  (bottom-right of the Serial Monitor).
 
-You'll see your local weather — temperature, "feels like", humidity, wind and
-rain — and it refreshes on its own. The Serial Monitor also prints each update.
+The weather for your area is printed there right after it connects, and it
+refreshes every 10 minutes. Change how often by editing `UPDATE_INTERVAL_MS`
+in the sketch.
 
 ---
 
@@ -92,11 +103,8 @@ rain — and it refreshes on its own. The Serial Monitor also prints each update
 | Part | What it does |
 |------|--------------|
 | `connectWiFi()` | Joins your WiFi network. |
-| `fetchWeather()` | Every 10 minutes, calls the Open-Meteo API for your coordinates and caches the result. |
-| `WebServer` on port 80 | Serves the web app at `/` and the raw data at `/api/weather`. |
-| The HTML page | Reads `/api/weather` and draws the dashboard; re-checks every 60 seconds. |
-
-Change how often it fetches by editing `UPDATE_INTERVAL_MS` in the sketch.
+| `fetchAndPrintWeather()` | Calls the Open-Meteo API for your coordinates and prints the result. |
+| `loop()` | Re-runs the fetch every 10 minutes and reconnects WiFi if it drops. |
 
 ---
 
@@ -105,14 +113,9 @@ Change how often it fetches by editing `UPDATE_INTERVAL_MS` in the sketch.
 - **WiFi won't connect** — double-check `WIFI_SSID` / `WIFI_PASSWORD`. ESP32 only
   supports **2.4 GHz** WiFi, not 5 GHz. Put it on your 2.4 GHz network.
 - **Serial Monitor shows gibberish** — set the baud rate to **115200**.
+- **Serial Monitor is blank** — make sure the correct **Port** is selected, and
+  press the board's **EN/RST** button once to restart it.
 - **Upload fails / "port not found"** — try a different USB cable (some are
   charge-only), and select the right **Port**. On some boards you hold the
   **BOOT** button while it starts uploading.
 - **`ArduinoJson.h: No such file`** — you skipped Step 2; install the library.
-- **App won't open in browser** — make sure your phone/laptop is on the **same
-  WiFi** as the ESP32, and use `http://` (not `https://`).
-
----
-
-Made to run entirely on the ESP32 — the board is both the weather fetcher and
-the web server, so nothing else needs to stay running.
