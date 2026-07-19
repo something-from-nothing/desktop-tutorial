@@ -1,17 +1,18 @@
-# ESP32 Weather Station 🌦️
+# Pico W Weather Station 🌦️ (WiFi → computer, no sensors)
 
-A weather station for the **Keyestudio ESP32** (works on most ESP32 dev boards).
-It pulls the **live weather for your area** from the internet and prints it
-straight to the **Arduino IDE Serial Monitor**, refreshing on a timer.
-No website, no browser — just the Serial Monitor.
+A weather station for the **Raspberry Pi Pico W**, written for the **Arduino IDE**.
+It pulls the **live weather for your area** from the internet and **transmits it
+back to your computer over WiFi** as plain text. No screen, and **no DHT /
+temperature sensor** — the weather comes from [Open-Meteo](https://open-meteo.com),
+a **free** API that needs **no account and no API key**.
 
-No sensors and no soldering are required — the weather comes from
-[Open-Meteo](https://open-meteo.com), a **free** API that needs **no account and
-no API key**.
+You view it on your computer with a terminal program — like the Serial Monitor,
+but wireless.
 
-Example of what the Serial Monitor shows:
+Example output:
 
 ```
+Connected to Pico W Weather Station.
 ========================================
   WEATHER FOR London
 ========================================
@@ -29,36 +30,31 @@ Example of what the Serial Monitor shows:
 
 ## What you need
 
-- A **Keyestudio ESP32** board (or any ESP32 dev board) + USB cable
+- A **Raspberry Pi Pico W** (or **Pico 2 W**) + **Micro-USB data cable**
 - The **Arduino IDE** (free): <https://www.arduino.cc/en/software>
-- Your home **WiFi name and password**
-- 5 minutes
+- Your home **2.4 GHz WiFi** name and password
+- On the computer: **PuTTY** (Windows) or the built-in `nc` / `telnet` (Mac/Linux)
+
+*(No breadboard, sensors or wiring — the Pico W just plugs into USB.)*
 
 ---
 
-## Step 1 — Add ESP32 support to the Arduino IDE
+## Step 1 — Add Pico support to the Arduino IDE
 
-1. Open the Arduino IDE.
-2. Go to **File → Preferences**.
-3. In **"Additional Boards Manager URLs"**, paste:
+1. **File → Preferences → "Additional Boards Manager URLs"**, add:
    ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+   https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
    ```
-4. Go to **Tools → Board → Boards Manager**, search **`esp32`**, and click
-   **Install** (by Espressif Systems).
+2. **Tools → Board → Boards Manager**, search **`pico`**, install
+   **"Raspberry Pi Pico/RP2040/RP2350" by Earle Philhower**.
 
 ## Step 2 — Install the ArduinoJson library
 
-- Go to **Tools → Manage Libraries…**, search **`ArduinoJson`**, and install it
-  (version **7** or newer).
+- **Tools → Manage Libraries…**, search **`ArduinoJson`**, install it (v7+).
 
-## Step 3 — Open the sketch
+## Step 3 — Open the sketch and enter your details
 
-- Open **`WeatherStation.ino`** from this folder in the Arduino IDE.
-
-## Step 4 — Enter your details
-
-Near the top of the sketch, edit these:
+Open **`WeatherStation.ino`** and edit:
 
 ```cpp
 const char* WIFI_SSID     = "YOUR_WIFI_NAME";
@@ -66,35 +62,39 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 const float LATITUDE  = 51.5074;     // <- your latitude
 const float LONGITUDE = -0.1278;     // <- your longitude
-const char* LOCATION_NAME = "London";// <- a label for the printout
+const char* LOCATION_NAME = "London";
 ```
 
-**Finding your latitude / longitude:** open [Google Maps](https://maps.google.com),
-right-click your town, and click the two numbers at the top of the menu — that
-copies `latitude, longitude`. Paste them in.
+Right-click your town in [Google Maps](https://maps.google.com) and click the
+numbers at the top to copy your latitude/longitude.
 
-Optional — units (defaults are °C and mph):
+## Step 4 — Upload
 
-```cpp
-const bool USE_FAHRENHEIT = false;   // true = °F
-const bool USE_MPH        = true;    // false = km/h
-```
+1. **Tools → Board →** select **"Raspberry Pi Pico W"**.
+2. **Hold the BOOTSEL button** while plugging in the USB (first upload only),
+   then release it.
+3. **Tools → Port →** select the port, and click **Upload**.
 
-## Step 5 — Upload
+## Step 5 — Get the IP address (one time)
 
-1. Plug in the board.
-2. **Tools → Board →** select **"ESP32 Dev Module"**.
-3. **Tools → Port →** select the port your board shows up on.
-4. Click **Upload** (the arrow ➜).
+- Open **Tools → Serial Monitor** at **115200 baud**. It prints something like:
+  ```
+  [wifi] IP address: 192.168.1.55
+  [wifi] Connect from your PC:  nc 192.168.1.55 8080   (or PuTTY Raw, port 8080)
+  ```
+- Note that IP. (You can also find the Pico in your router's device list.)
 
-## Step 6 — See the weather
+## Step 6 — Receive the weather over WiFi
 
-- Open **Tools → Serial Monitor** and set the baud rate to **115200**
-  (bottom-right of the Serial Monitor).
+- **Windows:** open **PuTTY** → Connection type **Raw** → Host = the Pico's IP →
+  Port **8080** → **Open**.
+- **Mac / Linux:** open a terminal and run:
+  ```
+  nc 192.168.1.55 8080
+  ```
 
-The weather for your area is printed there right after it connects, and it
-refreshes every 10 minutes. Change how often by editing `UPDATE_INTERVAL_MS`
-in the sketch.
+The latest weather appears immediately, then refreshes every 10 minutes. Once
+this works you don't need the USB cable — the Pico can run from any USB charger.
 
 ---
 
@@ -102,20 +102,24 @@ in the sketch.
 
 | Part | What it does |
 |------|--------------|
-| `connectWiFi()` | Joins your WiFi network. |
-| `fetchAndPrintWeather()` | Calls the Open-Meteo API for your coordinates and prints the result. |
-| `loop()` | Re-runs the fetch every 10 minutes and reconnects WiFi if it drops. |
+| `connectWiFi()` | Joins your 2.4 GHz WiFi. |
+| `fetchWeather()` | Calls the Open-Meteo API for your coordinates and formats the report. |
+| `WiFiServer` on port 8080 | Lets your computer connect and receive the text. |
+| `broadcast()` | Sends each update to the connected computer (and USB Serial). |
+
+Change how often it refreshes by editing `UPDATE_INTERVAL_MS`; change the port
+with `TCP_PORT`.
 
 ---
 
 ## Troubleshooting
 
-- **WiFi won't connect** — double-check `WIFI_SSID` / `WIFI_PASSWORD`. ESP32 only
-  supports **2.4 GHz** WiFi, not 5 GHz. Put it on your 2.4 GHz network.
-- **Serial Monitor shows gibberish** — set the baud rate to **115200**.
-- **Serial Monitor is blank** — make sure the correct **Port** is selected, and
-  press the board's **EN/RST** button once to restart it.
-- **Upload fails / "port not found"** — try a different USB cable (some are
-  charge-only), and select the right **Port**. On some boards you hold the
-  **BOOT** button while it starts uploading.
-- **`ArduinoJson.h: No such file`** — you skipped Step 2; install the library.
+- **WiFi won't connect** — check `WIFI_SSID` / `WIFI_PASSWORD` (case-sensitive).
+  The Pico W is **2.4 GHz only**, not 5 GHz.
+- **Can't connect from the computer** — make sure the PC is on the **same WiFi**,
+  the IP is current, and you used port **8080**. Some firewalls block outgoing
+  connections — allow it if prompted.
+- **`nc` not found on Windows** — use **PuTTY** in **Raw** mode instead.
+- **Only one computer connects at a time** — that's by design to keep it simple.
+- **`ArduinoJson.h: No such file`** — install the library (Step 2).
+```
