@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cap'n Codebeard's Academy — Dashboard</title>
+<style>
+  :root{--sea:#0b3a53;--sea-deep:#072632;--plank:#6b4423;--plank-lite:#8a5a2b;--parchment:#f4e4c1;
+    --parchment2:#ecd9ad;--gold:#f0b429;--gold-lite:#ffd75e;--rope:#c9a15a;--danger:#b23a2f;--good:#2e7d5b;
+    --ink:#3a2410;--flame:#ff7a1a;--xp:#58cc02;--card:#0e4763;}
+  *{box-sizing:border-box;} html,body{margin:0;padding:0;}
+  body{font-family:"Georgia","Times New Roman",serif;color:var(--parchment);
+    background:radial-gradient(1200px 600px at 50% -10%,#12546f 0%,var(--sea) 45%,var(--sea-deep) 100%);min-height:100vh;line-height:1.55;}
+  body::before{content:"";position:fixed;inset:0;background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.02) 0 2px,transparent 2px 40px);pointer-events:none;z-index:0;}
+  .wrap{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:16px 18px 60px;}
+  .topnav{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:linear-gradient(180deg,#0e4763,#0a3346);
+    border:2px solid var(--gold);border-radius:14px;padding:10px 16px;box-shadow:0 8px 20px rgba(0,0,0,.3);}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:bold;color:var(--gold-lite);font-size:18px;}
+  .brand .flag{font-size:28px;animation:sway 4s ease-in-out infinite;transform-origin:50% 0;}
+  @keyframes sway{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg)}}
+  .navspacer{flex:1;}
+  .navbtn{font-family:inherit;cursor:pointer;border:2px solid var(--rope);text-decoration:none;display:inline-flex;align-items:center;
+    background:linear-gradient(180deg,var(--plank-lite),var(--plank));color:var(--parchment);padding:8px 16px;border-radius:10px;font-size:15px;box-shadow:0 3px 0 #3d2712;transition:transform .1s;}
+  .navbtn:active{transform:translateY(2px);}
+  .navbtn.gold{border-color:var(--gold-lite);background:linear-gradient(180deg,var(--gold-lite),var(--gold));color:var(--ink);}
+  .streakbadge{display:flex;align-items:center;gap:6px;background:#08313f;border:1px solid var(--flame);padding:6px 12px;border-radius:20px;font-weight:bold;color:var(--gold-lite);}
+  .streakbadge .fl{font-size:18px;filter:drop-shadow(0 0 6px rgba(255,122,26,.7));}
+  header.masthead{text-align:center;padding:14px 12px 6px;}
+  h1.title{font-size:clamp(26px,5.5vw,42px);margin:6px 0 2px;color:var(--gold-lite);text-shadow:0 2px 0 #7a5a10,0 4px 14px rgba(0,0,0,.5);}
+  .subtitle{color:var(--rope);font-style:italic;margin:0;}
+  .captain{display:flex;gap:16px;align-items:flex-start;background:linear-gradient(180deg,#0e4763,#0a3346);border:2px solid var(--gold);
+    border-radius:14px;padding:14px 18px;margin:16px 0 8px;box-shadow:inset 0 0 30px rgba(0,0,0,.35),0 8px 20px rgba(0,0,0,.3);}
+  .captain .avatar{font-size:48px;line-height:1;flex:0 0 auto;} .captain .bubble{flex:1;} .captain .bubble b{color:var(--gold-lite);}
+  #dashSpeech{margin:0;min-height:2.2em;}
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin:18px 0;}
+  .stat{background:linear-gradient(180deg,var(--card),#0a3346);border:2px solid var(--rope);border-radius:14px;padding:16px;text-align:center;box-shadow:inset 0 0 24px rgba(0,0,0,.3);}
+  .stat .big{font-size:38px;font-weight:bold;line-height:1;margin:4px 0;} .stat .lbl{color:var(--rope);font-size:13px;text-transform:uppercase;letter-spacing:1px;}
+  .stat.flamecard .big{color:var(--flame);} .stat.xpcard .big{color:var(--xp);} .stat.lessoncard .big{color:var(--gold-lite);}
+  .stat.rankcard .big{color:var(--parchment);font-size:24px;}
+  .panelcard{background:linear-gradient(180deg,var(--card),#0a3346);border:2px solid var(--gold);border-radius:14px;padding:18px 20px;margin:16px 0;box-shadow:0 8px 20px rgba(0,0,0,.25);}
+  .panelcard h2{margin:0 0 12px;color:var(--gold-lite);font-size:20px;display:flex;align-items:center;gap:8px;}
+  .weekstrip{display:flex;gap:8px;flex-wrap:wrap;}
+  .daycell{flex:1;min-width:52px;text-align:center;background:#08313f;border:1px solid #17506a;border-radius:10px;padding:8px 4px;color:var(--rope);font-size:12px;}
+  .daycell.active{background:linear-gradient(180deg,#ff9a3c,#ff6a00);color:#2a1500;border-color:var(--gold-lite);font-weight:bold;}
+  .daycell.today{outline:2px dashed var(--gold-lite);outline-offset:1px;} .daycell .dnum{font-size:16px;font-weight:bold;}
+  .langprog{margin:12px 0;} .langprog .row{display:flex;align-items:center;gap:10px;margin:10px 0;}
+  .langprog .name{width:130px;font-weight:bold;color:var(--parchment);display:flex;align-items:center;gap:6px;}
+  .bar{flex:1;height:16px;background:#08313f;border-radius:10px;overflow:hidden;border:1px solid #17506a;}
+  .bar .fill{height:100%;background:linear-gradient(90deg,var(--xp),#7ee83a);width:0;transition:width .5s ease;}
+  .langprog .pct{width:74px;text-align:right;color:var(--gold-lite);font-family:monospace;}
+  .lessonlog{width:100%;border-collapse:collapse;}
+  .lessonlog th,.lessonlog td{text-align:left;padding:9px 10px;border-bottom:1px solid #17506a;font-size:14px;}
+  .lessonlog th{color:var(--rope);text-transform:uppercase;font-size:11px;letter-spacing:1px;}
+  .lessonlog tr:hover td{background:rgba(255,255,255,.03);}
+  .status{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:bold;}
+  .status.done{background:var(--good);color:#eafff3;} .status.viewed{background:#3a5a2e;color:#d6f5c8;} .status.new{background:#3a2c14;color:var(--rope);}
+  .golink{color:var(--gold-lite);text-decoration:underline;background:none;border:none;font-family:inherit;font-size:14px;padding:0;cursor:pointer;}
+  .duolink{display:inline-flex;align-items:center;gap:8px;background:#58cc02;color:#173d00;font-weight:bold;text-decoration:none;padding:9px 16px;border-radius:12px;box-shadow:0 4px 0 #3a8600;}
+  .duolink:active{transform:translateY(2px);box-shadow:0 2px 0 #3a8600;}
+  .dashrow{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+  .btn{font-family:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 18px;font-size:15px;font-weight:bold;transition:transform .1s;text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
+  .btn:active{transform:translateY(2px);} .btn-gold{background:var(--gold);color:var(--ink);} .btn-danger{background:transparent;color:#ffb3ab;border:1px solid var(--danger);}
+  footer.tiny{text-align:center;color:#6f93a5;font-size:12px;margin-top:30px;}
+  .muted-note{color:var(--rope);font-size:13px;font-style:italic;}
+  .warnbox{background:#3a2c14;border:1px solid var(--rope);border-radius:10px;padding:10px 14px;margin:12px 0;color:var(--gold-lite);font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topnav">
+    <div class="brand"><span class="flag">🏴‍☠️</span> Codebeard's Academy</div>
+    <span class="navbtn gold">📊 Dashboard</span>
+    <a class="navbtn" id="toLearn" href="pirate-learning-app.html">📚 Open Learning App</a>
+    <div class="navspacer"></div>
+    <div class="streakbadge"><span class="fl">🔥</span><span id="navStreak">0</span> day streak</div>
+  </div>
+
+  <header class="masthead">
+    <h1 class="title">Yer Voyage Dashboard</h1>
+    <p class="subtitle">Track yer streak, doubloons 'n every lesson ye've plundered — arrr!</p>
+  </header>
+
+  <div class="captain">
+    <div class="avatar" id="dashFace">🧔‍♂️</div>
+    <div class="bubble"><p id="dashSpeech"><b>Ahoy again, matey!</b> Keep yer streak alive by learnin' a lesson each day.</p></div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat flamecard"><div class="lbl">Day Streak</div><div class="big" id="statStreak">0</div><div class="muted-note" id="streakSub">Start today!</div></div>
+    <div class="stat xpcard"><div class="lbl">Total XP</div><div class="big" id="statXP">0</div><div class="muted-note">doubloons 💰</div></div>
+    <div class="stat lessoncard"><div class="lbl">Lessons Done</div><div class="big" id="statLessons">0/12</div><div class="muted-note">quizzes bested</div></div>
+    <div class="stat rankcard"><div class="lbl">Yer Rank</div><div class="big" id="statRank">Cabin Boy</div><div class="muted-note" id="rankSub">&nbsp;</div></div>
+  </div>
+
+  <div class="panelcard">
+    <h2>🔥 This Week's Activity</h2>
+    <div class="weekstrip" id="weekstrip"></div>
+    <p class="muted-note" style="margin-top:10px">A day lights up when ye complete any lesson in the Learning App. Miss a day 'n the flame goes out!</p>
+  </div>
+
+  <div class="panelcard">
+    <h2>🧭 Progress by Language</h2>
+    <div class="langprog" id="langprog"></div>
+  </div>
+
+  <div class="panelcard">
+    <h2>📜 Every Lesson Ye've Taken</h2>
+    <div style="overflow-x:auto">
+      <table class="lessonlog"><thead><tr><th>Lesson</th><th>Language</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="lessonlogBody"></tbody></table>
+    </div>
+  </div>
+
+  <div class="panelcard">
+    <h2>⚔️ Keep the Streak Going</h2>
+    <div class="dashrow">
+      <a class="btn btn-gold" id="continueBtn" href="pirate-learning-app.html">▶ Continue Learning</a>
+      <a class="duolink" href="https://www.duolingo.com" target="_blank" rel="noopener">🦉 Open Duolingo</a>
+      <button class="btn btn-danger" id="resetProgress">Reset all progress</button>
+    </div>
+    <p class="muted-note" style="margin-top:10px">Yer streak 'n lessons be saved on this device 'n shared with the Learning App file. Keep both files in the same folder so the buttons link up.</p>
+  </div>
+
+  <footer class="tiny">Dashboard file • Pairs with pirate-learning-app.html • Runs in any browser</footer>
+</div>
+
+<script>
+/* ===== shared core (identical in both files) ===== */
+const STORAGE_KEY='codebeard_progress_v2';
+let store={xp:0,completed:{},viewed:{},activeDates:[],created:null};
+function loadStore(){ try{const raw=localStorage.getItem(STORAGE_KEY);if(raw)store=Object.assign({xp:0,completed:{},viewed:{},activeDates:[],created:null},JSON.parse(raw));}catch(e){} }
+function saveStore(){ try{localStorage.setItem(STORAGE_KEY,JSON.stringify(store));}catch(e){} }
+function dstr(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function today(){return dstr(new Date());}
+function computeStreak(){const set=new Set(store.activeDates);let s=0;const d=new Date();if(!set.has(dstr(d)))d.setDate(d.getDate()-1);while(set.has(dstr(d))){s++;d.setDate(d.getDate()-1);}return s;}
+const RANKS=[[0,'Cabin Boy'],[20,'Deck Hand'],[40,'Bosun'],[60,'First Mate'],[90,'Quartermaster'],[120,'Captain']];
+function rankFor(xp){let r=RANKS[0];for(const x of RANKS){if(xp>=x[0])r=x;}return r;}
+function nextRank(xp){for(const x of RANKS){if(xp<x[0])return x;}return null;}
+const COURSE={
+  cpp:{name:"C++",emoji:"⚙️",lessons:[{title:"Yer First Cannon Blast — Hello World"},{title:"Barrels & Chests — Variables & Types"},{title:"Rowin' the Oars — Loops"},{title:"Ship's Orders — Functions"}]},
+  python:{name:"Python",emoji:"🐍",lessons:[{title:"A Gentle Greeting — Hello World"},{title:"No Labels Needed — Variables"},{title:"Mind the Whitespace — Loops"},{title:"Standing Orders — Functions"}]},
+  javascript:{name:"JavaScript",emoji:"🧭",lessons:[{title:"The Console Cannon — Hello World"},{title:"Three Kinds o' Chest — Variables"},{title:"Round the Mast — Loops"},{title:"Arrow Orders — Functions"}]}
+};
+const LANGS=['cpp','python','javascript'];
+const TOTAL_LESSONS=LANGS.reduce((n,l)=>n+COURSE[l].lessons.length,0);
+const keyOf=(lang,i)=>lang+':'+i;
+function totalCompleted(){return Object.keys(store.completed).length;}
+function completedInLang(lang){return COURSE[lang].lessons.filter((_,i)=>store.completed[keyOf(lang,i)]).length;}
+const $=s=>document.querySelector(s);
+
+/* ===== dashboard render ===== */
+function renderDashboard(){
+  loadStore();
+  const streak=computeStreak(),xp=store.xp||0,done=totalCompleted(),rank=rankFor(xp);
+  $('#navStreak').textContent=streak; $('#statStreak').textContent=streak;
+  $('#statXP').textContent=xp; $('#statLessons').textContent=done+'/'+TOTAL_LESSONS; $('#statRank').textContent=rank[1];
+  const nr=nextRank(xp); $('#rankSub').textContent=nr?(nr[0]-xp)+' XP to '+nr[1]:'Top rank, Cap\'n!';
+  $('#streakSub').textContent=streak>0?"Keep it burnin'! 🔥":"Do a lesson today!";
+  $('#dashFace').textContent=done===0?'🧔‍♂️':(done>=TOTAL_LESSONS?'🏴‍☠️':'🦜');
+  $('#dashSpeech').innerHTML=done===0?"<b>Fresh sails!</b> Complete yer first lesson to light the streak 'n earn doubloons."
+    :done>=TOTAL_LESSONS?"<b>Legendary!</b> Ye've bested every lesson aboard. A true Code Captain! 🏴‍☠️"
+    :"<b>"+streak+"-day streak!</b> Ye've completed "+done+" o' "+TOTAL_LESSONS+" lessons. Onward!";
+  renderWeekStrip(); renderLangProg(); renderLessonLog();
+  // continue button -> first incomplete lesson
+  let target='pirate-learning-app.html';
+  outer: for(const lang of LANGS){for(let i=0;i<COURSE[lang].lessons.length;i++){if(!store.completed[keyOf(lang,i)]){target='pirate-learning-app.html?lang='+lang+'&i='+i;break outer;}}}
+  $('#continueBtn').setAttribute('href',target);
+}
+function renderWeekStrip(){
+  const strip=$('#weekstrip');strip.innerHTML='';const set=new Set(store.activeDates);
+  const names=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];const now=new Date();
+  for(let i=6;i>=0;i--){const d=new Date(now);d.setDate(now.getDate()-i);const ds=dstr(d);
+    const c=document.createElement('div');c.className='daycell'+(set.has(ds)?' active':'')+(i===0?' today':'');
+    c.innerHTML='<div>'+names[d.getDay()]+'</div><div class="dnum">'+d.getDate()+'</div>'+(set.has(ds)?'🔥':'·');strip.appendChild(c);}
+}
+function renderLangProg(){
+  const wrap=$('#langprog');wrap.innerHTML='';
+  LANGS.forEach(lang=>{const c=COURSE[lang],done=completedInLang(lang),tot=c.lessons.length,pct=Math.round(done/tot*100);
+    const row=document.createElement('div');row.className='row';
+    row.innerHTML='<div class="name">'+c.emoji+' '+c.name+'</div><div class="bar"><div class="fill" style="width:'+pct+'%"></div></div><div class="pct">'+done+'/'+tot+'</div>';wrap.appendChild(row);});
+}
+function renderLessonLog(){
+  const body=$('#lessonlogBody');body.innerHTML='';
+  LANGS.forEach(lang=>{COURSE[lang].lessons.forEach((les,i)=>{const k=keyOf(lang,i);
+    const st=store.completed[k]?['done','✅ Completed']:store.viewed[k]?['viewed','👁 Viewed']:['new','◻ Not started'];
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td>'+les.title+'</td><td>'+COURSE[lang].emoji+' '+COURSE[lang].name+'</td>'+
+      '<td><span class="status '+st[0]+'">'+st[1]+'</span></td>'+
+      '<td><a class="golink" href="pirate-learning-app.html?lang='+lang+'&i='+i+'">'+(store.completed[k]?'Review ▶':'Start ▶')+'</a></td>';
+    body.appendChild(tr);});});
+}
+$('#resetProgress').onclick=()=>{
+  if(confirm("Scuttle all yer progress, streak 'n doubloons? This cannot be undone, matey.")){
+    store={xp:0,completed:{},viewed:{},activeDates:[],created:today()};saveStore();renderDashboard();
+  }
+};
+/* live-refresh if the Learning App (other tab) updates progress */
+window.addEventListener('storage',e=>{if(e.key===STORAGE_KEY)renderDashboard();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)renderDashboard();});
+renderDashboard();
+</script>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cap'n Codebeard's Academy — Learning App</title>
+<style>
+  :root{--sea:#0b3a53;--sea-deep:#072632;--plank:#6b4423;--plank-lite:#8a5a2b;--parchment:#f4e4c1;
+    --parchment2:#ecd9ad;--gold:#f0b429;--gold-lite:#ffd75e;--rope:#c9a15a;--danger:#b23a2f;--good:#2e7d5b;
+    --ink:#3a2410;--code-bg:#1c2b33;--code-fg:#d6e6ef;--flame:#ff7a1a;--xp:#58cc02;}
+  *{box-sizing:border-box;} html,body{margin:0;padding:0;}
+  body{font-family:"Georgia","Times New Roman",serif;color:var(--parchment);
+    background:radial-gradient(1200px 600px at 50% -10%,#12546f 0%,var(--sea) 45%,var(--sea-deep) 100%);min-height:100vh;line-height:1.55;}
+  body::before{content:"";position:fixed;inset:0;background-image:repeating-linear-gradient(0deg,rgba(255,255,255,.02) 0 2px,transparent 2px 40px);pointer-events:none;z-index:0;}
+  .wrap{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:16px 18px 60px;}
+  .topnav{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:linear-gradient(180deg,#0e4763,#0a3346);
+    border:2px solid var(--gold);border-radius:14px;padding:10px 16px;box-shadow:0 8px 20px rgba(0,0,0,.3);}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:bold;color:var(--gold-lite);font-size:18px;}
+  .brand .flag{font-size:28px;animation:sway 4s ease-in-out infinite;transform-origin:50% 0;}
+  @keyframes sway{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg)}}
+  .navspacer{flex:1;}
+  .navbtn{font-family:inherit;cursor:pointer;border:2px solid var(--rope);text-decoration:none;display:inline-flex;align-items:center;
+    background:linear-gradient(180deg,var(--plank-lite),var(--plank));color:var(--parchment);padding:8px 16px;border-radius:10px;font-size:15px;box-shadow:0 3px 0 #3d2712;transition:transform .1s;}
+  .navbtn:active{transform:translateY(2px);}
+  .navbtn.gold{border-color:var(--gold-lite);background:linear-gradient(180deg,var(--gold-lite),var(--gold));color:var(--ink);}
+  .streakbadge{display:flex;align-items:center;gap:6px;background:#08313f;border:1px solid var(--flame);padding:6px 12px;border-radius:20px;font-weight:bold;color:var(--gold-lite);}
+  .streakbadge .fl{font-size:18px;filter:drop-shadow(0 0 6px rgba(255,122,26,.7));}
+  header.masthead{text-align:center;padding:14px 12px 6px;}
+  h1.title{font-size:clamp(26px,5.5vw,42px);margin:6px 0 2px;color:var(--gold-lite);text-shadow:0 2px 0 #7a5a10,0 4px 14px rgba(0,0,0,.5);}
+  .subtitle{color:var(--rope);font-style:italic;margin:0;}
+  .captain{display:flex;gap:16px;align-items:flex-start;background:linear-gradient(180deg,#0e4763,#0a3346);border:2px solid var(--gold);
+    border-radius:14px;padding:14px 18px;margin:16px 0 8px;box-shadow:inset 0 0 30px rgba(0,0,0,.35),0 8px 20px rgba(0,0,0,.3);}
+  .captain .avatar{font-size:48px;line-height:1;flex:0 0 auto;} .captain .bubble{flex:1;} .captain .bubble b{color:var(--gold-lite);}
+  #captainSpeech{margin:0;min-height:2.2em;}
+  .langbar{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:16px 0;}
+  .langbtn{font-family:inherit;cursor:pointer;border:2px solid var(--rope);background:linear-gradient(180deg,var(--plank-lite),var(--plank));
+    color:var(--parchment);padding:10px 18px;border-radius:10px;font-size:16px;display:flex;align-items:center;gap:8px;box-shadow:0 4px 0 #3d2712;transition:transform .12s;}
+  .langbtn:active{transform:translateY(2px);box-shadow:0 1px 0 #3d2712;}
+  .langbtn.active{border-color:var(--gold-lite);background:linear-gradient(180deg,var(--gold-lite),var(--gold));color:var(--ink);box-shadow:0 4px 0 #8a6510;}
+  .langbtn .emoji{font-size:20px;}
+  .dots-row{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap;}
+  .dot{width:32px;height:32px;border-radius:50%;border:2px solid var(--rope);background:var(--plank);color:var(--parchment);cursor:pointer;
+    font-size:13px;display:flex;align-items:center;justify-content:center;font-family:monospace;position:relative;}
+  .dot.active{background:var(--gold);color:var(--ink);border-color:var(--gold-lite);}
+  .dot.done{border-color:var(--xp);}
+  .dot.done::after{content:"✓";position:absolute;top:-6px;right:-6px;background:var(--xp);color:#0a2b00;width:16px;height:16px;border-radius:50%;font-size:11px;display:flex;align-items:center;justify-content:center;}
+  .parchment{background:radial-gradient(120% 140% at 0% 0%,#fff6e0 0%,var(--parchment) 55%,var(--parchment2) 100%);color:var(--ink);
+    border-radius:12px;padding:22px 24px;box-shadow:0 12px 30px rgba(0,0,0,.4);border:1px solid #d9c290;position:relative;}
+  .parchment::after{content:"";position:absolute;inset:0;border-radius:12px;pointer-events:none;box-shadow:inset 0 0 60px rgba(120,80,20,.18);}
+  .lesson-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+  .lesson-head h2{margin:0;color:var(--plank);font-size:24px;} .lesson-progress{font-size:14px;color:#7a5a2a;font-style:italic;}
+  .lesson-tag{display:inline-block;background:var(--sea);color:var(--gold-lite);font-size:12px;padding:3px 10px;border-radius:20px;font-family:monospace;letter-spacing:.5px;}
+  .parchment p{margin:10px 0;} .parchment ul{margin:8px 0 8px 4px;padding-left:22px;} .parchment li{margin:4px 0;}
+  .parchment .analogy{background:rgba(11,58,83,.08);border-left:4px solid var(--sea);padding:8px 14px;border-radius:6px;font-style:italic;}
+  .parchment code{background:rgba(11,58,83,.1);padding:1px 5px;border-radius:4px;font-family:"SF Mono","Consolas",monospace;font-size:.92em;}
+  .codewrap{margin:14px 0;border-radius:10px;overflow:hidden;border:1px solid #0a1b22;box-shadow:0 6px 14px rgba(0,0,0,.3);}
+  .codebar{background:#12212a;color:#9fb6c2;font-family:monospace;font-size:12px;padding:6px 12px;display:flex;justify-content:space-between;align-items:center;}
+  .codebar .dots span{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;}
+  .codebar .right{display:flex;align-items:center;gap:10px;}
+  .copybtn{font-family:inherit;cursor:pointer;border:1px solid #35566a;background:#1b3644;color:#bfe0f0;padding:3px 10px;border-radius:6px;font-size:11px;display:flex;align-items:center;gap:5px;transition:background .1s,color .1s;}
+  .copybtn:hover{background:#25485a;} .copybtn:active{transform:translateY(1px);} .copybtn.copied{background:var(--good);color:#eafff3;border-color:#8affc0;}
+  pre.code{margin:0;background:var(--code-bg);color:var(--code-fg);padding:14px 16px;overflow-x:auto;font-family:"SF Mono","Consolas","Menlo",monospace;font-size:14px;line-height:1.5;}
+  pre.code .kw{color:#ff9d6e;} pre.code .str{color:#a3e39b;} pre.code .com{color:#6f8a97;font-style:italic;} pre.code .num{color:#f0c674;}
+  .output{background:#04120a;color:#7dffa8;font-family:monospace;font-size:13px;padding:10px 14px;border-top:1px dashed #1d5c38;white-space:pre-wrap;} .output .muted{color:#4f8a6a;}
+  .tryit{margin-top:16px;background:rgba(11,58,83,.06);border:1px dashed var(--sea);border-radius:10px;padding:12px 14px;}
+  .tryit h3{margin:0 0 8px;color:var(--sea);font-size:16px;}
+  textarea.editor{width:100%;min-height:120px;resize:vertical;font-family:"SF Mono","Consolas",monospace;font-size:14px;background:var(--code-bg);color:var(--code-fg);border:1px solid #0a1b22;border-radius:8px;padding:12px;line-height:1.5;}
+  .runrow{display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+  .btn{font-family:inherit;cursor:pointer;border:none;border-radius:8px;padding:9px 16px;font-size:15px;font-weight:bold;transition:transform .1s;}
+  .btn:active{transform:translateY(2px);} .btn-run{background:var(--good);color:#eafff3;} .btn-ghost{background:transparent;color:var(--sea);border:1px solid var(--sea);} .btn-gold{background:var(--gold);color:var(--ink);}
+  .runout{margin-top:10px;background:#04120a;color:#7dffa8;border-radius:8px;padding:10px 12px;font-family:monospace;font-size:13px;white-space:pre-wrap;min-height:1.4em;}
+  .note-sim{color:#7a5a2a;font-size:12px;font-style:italic;margin-top:6px;}
+  .quiz{margin-top:16px;background:#0d3f57;border:2px solid var(--gold);border-radius:10px;padding:14px 16px;color:var(--parchment);}
+  .quiz h3{margin:0 0 8px;color:var(--gold-lite);} .quiz .q{font-weight:bold;margin-bottom:10px;}
+  .quiz .opt{display:block;width:100%;text-align:left;margin:6px 0;padding:9px 12px;border-radius:8px;border:1px solid var(--rope);background:#0a3346;color:var(--parchment);cursor:pointer;font-family:inherit;font-size:15px;}
+  .quiz .opt:hover{background:#0e4763;} .quiz .opt.correct{background:var(--good);border-color:#8affc0;color:#eafff3;} .quiz .opt.wrong{background:var(--danger);border-color:#ffb3ab;color:#fff0ee;}
+  .quiz .feedback{margin-top:8px;font-style:italic;min-height:1.4em;}
+  .lessonnav{display:flex;justify-content:space-between;margin-top:18px;gap:10px;}
+  .btn-ghost.light{color:var(--parchment);border-color:var(--rope);}
+  footer.tiny{text-align:center;color:#6f93a5;font-size:12px;margin-top:30px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topnav">
+    <div class="brand"><span class="flag">🏴‍☠️</span> Codebeard's Academy</div>
+    <a class="navbtn" id="toDash" href="pirate-dashboard.html">📊 Open Dashboard</a>
+    <span class="navbtn gold">📚 Learning App</span>
+    <div class="navspacer"></div>
+    <div class="streakbadge"><span class="fl">🔥</span><span id="navStreak">0</span> day streak</div>
+  </div>
+
+  <header class="masthead">
+    <h1 class="title">Cap'n Codebeard's Lessons</h1>
+    <p class="subtitle">Plunder the treasures o' C++, Python 'n JavaScript!</p>
+  </header>
+
+  <div class="captain">
+    <div class="avatar" id="captainFace">🧔‍♂️</div>
+    <div class="bubble"><p id="captainSpeech"><b>Ahoy!</b> Pick a language flag 'n we'll set a course. Arrr!</p></div>
+  </div>
+
+  <div class="langbar" id="langbar">
+    <button class="langbtn active" data-lang="cpp"><span class="emoji">⚙️</span> C++</button>
+    <button class="langbtn" data-lang="python"><span class="emoji">🐍</span> Python</button>
+    <button class="langbtn" data-lang="javascript"><span class="emoji">🧭</span> JavaScript</button>
+  </div>
+
+  <div class="dots-row" id="dotsRow"></div>
+  <main class="parchment" id="lessonPanel"></main>
+  <div class="lessonnav">
+    <button class="btn btn-ghost light" id="prevBtn">◀ Previous</button>
+    <button class="btn btn-gold" id="nextBtn">Next ▶</button>
+  </div>
+
+  <footer class="tiny">Learning App file • Pairs with pirate-dashboard.html • Real JavaScript runs in yer browser</footer>
+</div>
+
+<script>
+/* ===== shared core (identical in both files) ===== */
+const STORAGE_KEY='codebeard_progress_v2';
+let store={xp:0,completed:{},viewed:{},activeDates:[],created:null};
+function loadStore(){ try{const raw=localStorage.getItem(STORAGE_KEY);if(raw)store=Object.assign({xp:0,completed:{},viewed:{},activeDates:[],created:null},JSON.parse(raw));}catch(e){} }
+function saveStore(){ try{localStorage.setItem(STORAGE_KEY,JSON.stringify(store));}catch(e){} }
+function dstr(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function today(){return dstr(new Date());}
+function markActiveToday(){const t=today();if(!store.activeDates.includes(t))store.activeDates.push(t);if(!store.created)store.created=t;saveStore();}
+function computeStreak(){const set=new Set(store.activeDates);let s=0;const d=new Date();if(!set.has(dstr(d)))d.setDate(d.getDate()-1);while(set.has(dstr(d))){s++;d.setDate(d.getDate()-1);}return s;}
+const keyOf=(lang,i)=>lang+':'+i;
+loadStore();
+
+/* ===== curriculum ===== */
+const COURSE={
+  cpp:{name:"C++",emoji:"⚙️",face:"🧔‍♂️",intro:"Arrr, C++ be the mighty warship — fast, powerful 'n a wee bit dangerous!",
+    lessons:[
+      {tag:"cpp/01",title:"Yer First Cannon Blast — Hello World",
+        body:`<p>Every C++ voyage begins with a greeting. C++ be a <b>compiled</b> language — a compiler turns yer code into machine code, then it runs blazin' fast.</p>
+        <p class="analogy">⚓ The compiler be the shipwright: it builds yer whole vessel <i>before</i> ye sail. A rotten plank 'n it won't launch.</p>
+        <ul><li><code>#include &lt;iostream&gt;</code> loads the input/output crew.</li><li><code>int main()</code> be the captain's quarters — where it starts.</li><li><code>std::cout</code> shouts text to the deck.</li><li>End each command with a <b>semicolon</b> <code>;</code>!</li></ul>`,
+        code:`#include <iostream>\n\nint main() {\n    std::cout << "Ahoy, World!" << std::endl;\n    return 0;\n}`,
+        output:`Ahoy, World!`,
+        quiz:{q:"What punctuation ends nearly every C++ statement?",opts:["A semicolon ;","A period .","A comma ,","Nothing"],answer:0,why:"Aye! The semicolon ';' ends a statement in C++."}},
+      {tag:"cpp/02",title:"Barrels & Chests — Variables & Types",
+        body:`<p>In C++ ye declare what kind o' treasure a chest holds <b>before</b> fillin' it — <i>static typing</i>.</p>
+        <ul><li><code>int</code> whole numbers</li><li><code>double</code> decimals</li><li><code>char</code> one character</li><li><code>bool</code> true/false</li><li><code>std::string</code> text</li></ul>
+        <p class="analogy">🛢️ A barrel marked "rum" can't hold cannonballs. An <code>int</code> chest holds only whole numbers.</p>`,
+        code:`#include <iostream>\n#include <string>\n\nint main() {\n    int gold = 100;\n    double share = 33.5;\n    std::string crew = "Salty Sam";\n    std::cout << crew << " gets " << share << " gold." << std::endl;\n    return 0;\n}`,
+        output:`Salty Sam gets 33.5 gold.`,
+        quiz:{q:"Which type stores the number 3.14?",opts:["int","double","char","bool"],answer:1,why:"Right! 'double' holds decimals; 'int' only whole numbers."}},
+      {tag:"cpp/03",title:"Rowin' the Oars — Loops",
+        body:`<p>To repeat an order, use a <b>for</b> loop: start, condition, step.</p>
+        <ul><li><b>start</b> <code>int i = 1</code></li><li><b>condition</b> <code>i &lt;= 3</code></li><li><b>step</b> <code>i++</code></li></ul>`,
+        code:`#include <iostream>\n\nint main() {\n    for (int i = 1; i <= 3; i++) {\n        std::cout << "Yo ho " << i << "!" << std::endl;\n    }\n    return 0;\n}`,
+        output:`Yo ho 1!\nYo ho 2!\nYo ho 3!`,
+        quiz:{q:"What does `i++` do in the loop?",opts:["Resets i","Adds 1 to i each loop","Stops the loop","Halves i"],answer:1,why:"Aye! 'i++' adds one each pass."}},
+      {tag:"cpp/04",title:"Ship's Orders — Functions",
+        body:`<p>A <b>function</b> be a reusable order. State the return type, name 'n parameters.</p>
+        <p class="analogy">🧭 A standing order: "Fire the cannons!" — call it by name whenever ye need it.</p>`,
+        code:`#include <iostream>\n\nint addBooty(int a, int b) {\n    return a + b;\n}\n\nint main() {\n    std::cout << "Total booty: " << addBooty(40, 60) << std::endl;\n    return 0;\n}`,
+        output:`Total booty: 100`,
+        quiz:{q:"In `int addBooty(...)`, the leading `int` is the…",opts:["access level","return type","loop count","comment"],answer:1,why:"Correct! It's the return type — the value handed back."}}
+    ]},
+  python:{name:"Python",emoji:"🐍",face:"🧑‍🦰",intro:"Python be the friendly sea serpent — easy to read 'n gentle on new sailors.",
+    lessons:[
+      {tag:"py/01",title:"A Gentle Greeting — Hello World",
+        body:`<p>Python be <b>interpreted</b> — no compiler, it runs yer lines right away 'n reads like plain English.</p>
+        <ul><li><code>print(...)</code> shouts text to the deck.</li><li>No semicolons, no <code>main()</code>.</li></ul>
+        <p class="analogy">🐍 Like a trained parrot: say the line, it repeats instantly.</p>`,
+        code:`print("Ahoy, World!")`, output:`Ahoy, World!`,
+        quiz:{q:"How do ye display text in Python?",opts:["cout <<","print()","echo","display[]"],answer:1,why:"Aye! Python uses print()."}},
+      {tag:"py/02",title:"No Labels Needed — Variables",
+        body:`<p>Python figures out the type itself — <i>dynamic typing</i>. Just name yer chest 'n fill it.</p>
+        <ul><li><code>gold = 100</code></li><li><code>share = 33.5</code></li><li><code>crew = "Salty Sam"</code></li></ul>`,
+        code:`gold = 100\nshare = 33.5\ncrew = "Salty Sam"\nprint(crew, "gets", share, "gold.")`,
+        output:`Salty Sam gets 33.5 gold.`,
+        quiz:{q:"Must ye declare a variable's type in Python?",opts:["Aye, always","Nay — Python figures it out","Only for numbers","Only on Tuesdays"],answer:1,why:"Correct! Python is dynamically typed."}},
+      {tag:"py/03",title:"Mind the Whitespace — Loops",
+        body:`<p>Python's <b>for</b> loop walks over a <code>range</code>. The golden rule: <b>indentation</b> marks what's inside — no braces!</p>
+        <p class="analogy">📏 Indentation be like ranks on a ship — everything lined up under an order belongs to it.</p>`,
+        code:`for i in range(1, 4):\n    print("Yo ho", i, "!")`,
+        output:`Yo ho 1 !\nYo ho 2 !\nYo ho 3 !`,
+        quiz:{q:"What marks code inside a Python loop?",opts:["Curly braces { }","Indentation","Semicolons","Parentheses"],answer:1,why:"Aye! Indentation defines Python blocks."}},
+      {tag:"py/04",title:"Standing Orders — Functions",
+        body:`<p>Define a reusable order with <code>def</code>. No return types to declare — just <code>return</code> the treasure.</p>`,
+        code:`def add_booty(a, b):\n    return a + b\n\nprint("Total booty:", add_booty(40, 60))`,
+        output:`Total booty: 100`,
+        quiz:{q:"Which keyword starts a Python function?",opts:["func","def","function","sub"],answer:1,why:"Right! 'def' defines a function."}}
+    ]},
+  javascript:{name:"JavaScript",emoji:"🧭",face:"🧑‍🦱",intro:"JavaScript be the language o' the browser seas — it runs right here! Ye can RUN yer code for real.",
+    lessons:[
+      {tag:"js/01",title:"The Console Cannon — Hello World",
+        body:`<p>JavaScript runs in yer browser. It talks to the <b>console</b> with <code>console.log(...)</code>.</p>
+        <p class="analogy">🧭 Best part — this be the language o' THIS page. Hit <b>Run</b> 'n real JavaScript fires!</p>`,
+        code:`console.log("Ahoy, World!");`, output:`Ahoy, World!`, runnable:true, starter:`console.log("Ahoy, World!");`,
+        quiz:{q:"How does JavaScript print to the console?",opts:["print()","console.log()","std::cout","echo"],answer:1,why:"Aye! console.log()."}},
+      {tag:"js/02",title:"Three Kinds o' Chest — Variables",
+        body:`<p>Three ways to make a chest: <code>const</code> (locked), <code>let</code> (refillable), 'n old <code>var</code>.</p>
+        <ul><li><code>const</code> cannot be reassigned</li><li><code>let</code> can be changed later</li></ul>`,
+        code:`const crew = "Salty Sam";\nlet gold = 100;\ngold = gold + 50;\nconsole.log(crew + " now has " + gold + " gold.");`,
+        output:`Salty Sam now has 150 gold.`, runnable:true,
+        starter:`const crew = "Salty Sam";\nlet gold = 100;\ngold = gold + 50;\nconsole.log(crew + " now has " + gold + " gold.");`,
+        quiz:{q:"Which keyword makes a value ye CANNOT reassign?",opts:["let","var","const","fixed"],answer:2,why:"Correct! 'const' locks the chest."}},
+      {tag:"js/03",title:"Round the Mast — Loops",
+        body:`<p>JavaScript's <b>for</b> loop looks like C++'s — start, condition, step — with curly braces <code>{ }</code>.</p>`,
+        code:`for (let i = 1; i <= 3; i++) {\n  console.log("Yo ho " + i + "!");\n}`,
+        output:`Yo ho 1!\nYo ho 2!\nYo ho 3!`, runnable:true,
+        starter:`for (let i = 1; i <= 3; i++) {\n  console.log("Yo ho " + i + "!");\n}`,
+        quiz:{q:"What surrounds a JS for-loop body?",opts:["Indentation","Curly braces { }","Square brackets","Quotes"],answer:1,why:"Aye! Curly braces { }."}},
+      {tag:"js/04",title:"Arrow Orders — Functions",
+        body:`<p>Write functions the classic way with <code>function</code>, or the sleek <b>arrow</b> way with <code>=&gt;</code>.</p>
+        <p class="analogy">🏹 The arrow function be shorthand — same order, fewer words.</p>`,
+        code:`const addBooty = (a, b) => a + b;\nconsole.log("Total booty: " + addBooty(40, 60));`,
+        output:`Total booty: 100`, runnable:true,
+        starter:`const addBooty = (a, b) => a + b;\nconsole.log("Total booty: " + addBooty(40, 60));`,
+        quiz:{q:"Which symbol defines an arrow function?",opts:["->","=>","=<","~>"],answer:1,why:"Right! '=>' makes an arrow function."}}
+    ]}
+};
+const LANGS=['cpp','python','javascript'];
+
+/* ===== highlighter + flavour ===== */
+function hl(code, lang){
+  let s=code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const kw={cpp:['#include','int','float','double','char','bool','void','return','using','namespace','std','for','while','if','else','cout','cin','endl','const','auto','struct','class','public','private','new','vector','string','true','false'],
+    python:['def','return','if','elif','else','for','while','in','import','from','print','True','False','None','class','and','or','not','range','len','lambda','with','as'],
+    javascript:['const','let','var','function','return','if','else','for','while','of','in','console','log','true','false','null','undefined','class','new','import','export','typeof']}[lang]||[];
+  if(lang==='python')s=s.replace(/(#.*)$/gm,'<span class="com">$1</span>'); else s=s.replace(/(\/\/.*)$/gm,'<span class="com">$1</span>');
+  s=s.replace(/(&quot;|")(.*?)(\1)/g,'<span class="str">$1$2$3</span>');
+  s=s.replace(/('(?:[^'\\]|\\.)*')/g,'<span class="str">$1</span>');
+  s=s.replace(/\b(\d+(?:\.\d+)?)\b/g,'<span class="num">$1</span>');
+  kw.sort((a,b)=>b.length-a.length).forEach(k=>{const esc=k.replace(/[.*+?^${}()|[\]\\#]/g,'\\$&');const re=new RegExp('(?<![\\w<])('+esc+')(?![\\w>])','g');s=s.replace(re,'<span class="kw">$1</span>');});
+  return s;
+}
+const cheers=["Yarr, ye be a natural! 🦜","Shiver me timbers, well done!","That be worth a chest o' gold, matey!","Ye sail these waters like a true buccaneer!","Avast — that answer be spot on!","The parrot approves. Squawk! 🦜"];
+const nudges=["Arrr, not quite. Check yer bearings 'n try again.","That course leads to the rocks, matey!","Nay, the treasure be elsewhere. Have another go!","Close, but ye missed the mark. Steady the helm!"];
+const rnd=a=>a[Math.floor(Math.random()*a.length)];
+
+/* ===== state (deep-link aware) ===== */
+const params=new URLSearchParams(location.search);
+const startLang=LANGS.includes(params.get('lang'))?params.get('lang'):'cpp';
+let startIdx=parseInt(params.get('i'),10); if(isNaN(startIdx)||startIdx<0||startIdx>=COURSE[startLang].lessons.length)startIdx=0;
+const state={lang:startLang,index:startIdx};
+const $=s=>document.querySelector(s);
+function say(t){$('#captainSpeech').innerHTML=t;}
+
+function renderDots(){
+  const lessons=COURSE[state.lang].lessons,row=$('#dotsRow');row.innerHTML='';
+  lessons.forEach((_,i)=>{const d=document.createElement('button');
+    d.className='dot'+(i===state.index?' active':'')+(store.completed[keyOf(state.lang,i)]?' done':'');
+    d.textContent=i+1;d.title='Lesson '+(i+1);d.onclick=()=>{state.index=i;render();};row.appendChild(d);});
+}
+function renderLangbar(){document.querySelectorAll('.langbtn').forEach(b=>b.classList.toggle('active',b.dataset.lang===state.lang));}
+
+function render(){
+  const course=COURSE[state.lang],lesson=course.lessons[state.index];
+  $('#captainFace').textContent=course.face; renderLangbar(); renderDots();
+  const k=keyOf(state.lang,state.index);
+  if(!store.viewed[k])store.viewed[k]=true;
+  markActiveToday(); $('#navStreak').textContent=computeStreak();
+  const codeHtml=hl(lesson.code,state.lang);
+  const outHtml=(lesson.output||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const ext=state.lang==='python'?'py':state.lang==='cpp'?'cpp':'js';
+  let html=`<div class="lesson-head"><div><span class="lesson-tag">${lesson.tag}</span><h2>${lesson.title}</h2></div>
+      <span class="lesson-progress">Lesson ${state.index+1} of ${course.lessons.length} · ${course.name}</span></div>
+    ${lesson.body}
+    <div class="codewrap"><div class="codebar">
+        <span class="dots"><span style="background:#ff5f56"></span><span style="background:#ffbd2e"></span><span style="background:#27c93f"></span></span>
+        <span class="right"><span>${course.name} — example.${ext}</span><button class="copybtn" id="copyCodeBtn">📋 Copy</button></span>
+      </div><pre class="code">${codeHtml}</pre>
+      <div class="output"><span class="muted">▶ output:</span>\n${outHtml}</div></div>`;
+  if(lesson.runnable){
+    html+=`<div class="tryit"><h3>⚓ Try it yerself — this be REAL JavaScript!</h3>
+      <textarea class="editor" id="editor">${lesson.starter.replace(/</g,'&lt;')}</textarea>
+      <div class="runrow"><button class="btn btn-run" id="runBtn">▶ Run the code</button>
+      <button class="btn btn-ghost" id="resetBtn">Reset</button>
+      <button class="btn btn-ghost" id="copyEditorBtn">📋 Copy</button></div>
+      <div class="runout" id="runout"><span style="color:#4f8a6a">// yer output appears here...</span></div></div>`;
+  } else {
+    html+=`<div class="tryit"><h3>⚓ Try it yerself — edit 'n predict the output!</h3>
+      <textarea class="editor" id="editor">${lesson.code.replace(/</g,'&lt;')}</textarea>
+      <div class="runrow"><button class="btn btn-run" id="runBtn">▶ Run (simulated)</button>
+      <button class="btn btn-ghost" id="resetBtn">Reset</button>
+      <button class="btn btn-ghost" id="copyEditorBtn">📋 Copy</button></div>
+      <div class="runout" id="runout"><span style="color:#4f8a6a">// press Run to see the expected output...</span></div>
+      <div class="note-sim">Note: ${course.name} needs a ${state.lang==='python'?'Python interpreter':'compiler'} to run for real. Here we show the expected output so ye can learn safely aboard ship.</div></div>`;
+  }
+  if(lesson.quiz){
+    const already=store.completed[k];
+    html+=`<div class="quiz" id="quiz"><h3>🦜 Cap'n's Challenge <span style="font-size:13px;color:#9fd">(+10 XP)</span></h3>
+      <div class="q">${lesson.quiz.q}</div><div id="opts"></div>
+      <div class="feedback" id="feedback">${already?'✅ Already bested — well sailed!':''}</div></div>`;
+  }
+  $('#lessonPanel').innerHTML=html;
+  wireLesson(lesson);
+  say(state.index===0?`<b>${course.emoji} ${course.name}!</b> ${course.intro}`:`Onward to <b>${lesson.title}</b>. Study the code, then take the Cap'n's Challenge!`);
+  saveStore();
+}
+
+function wireLesson(lesson){
+  const runBtn=$('#runBtn'),resetBtn=$('#resetBtn'),editor=$('#editor'),runout=$('#runout');
+  if(runBtn)runBtn.onclick=()=>{lesson.runnable?runRealJS(editor.value,runout):(runout.textContent=lesson.output||'(no output)');};
+  if(resetBtn)resetBtn.onclick=()=>{editor.value=lesson.runnable?lesson.starter:lesson.code;runout.innerHTML='<span style="color:#4f8a6a">// reset. press Run again.</span>';};
+  const copyCodeBtn=$('#copyCodeBtn'),copyEditorBtn=$('#copyEditorBtn');
+  if(copyCodeBtn)copyCodeBtn.onclick=()=>copyText(lesson.code,copyCodeBtn);
+  if(copyEditorBtn)copyEditorBtn.onclick=()=>copyText(editor.value,copyEditorBtn);
+  if(lesson.quiz){
+    const opts=$('#opts'),feedback=$('#feedback'),k=keyOf(state.lang,state.index);
+    lesson.quiz.opts.forEach((text,i)=>{const b=document.createElement('button');b.className='opt';b.textContent=text;
+      b.onclick=()=>{
+        if(store.completed[k])return;
+        const correct=i===lesson.quiz.answer; b.classList.add(correct?'correct':'wrong');
+        if(correct){feedback.textContent='✅ '+lesson.quiz.why+'  '+rnd(cheers);
+          store.completed[k]=true;store.xp=(store.xp||0)+10;markActiveToday();saveStore();
+          say('<b>'+rnd(cheers)+'</b> +10 doubloons! 💰  Streak: '+computeStreak()+' 🔥');
+          $('#navStreak').textContent=computeStreak();renderDots();
+        } else {feedback.textContent='❌ '+rnd(nudges);say(rnd(nudges));
+          [...opts.children].forEach((c,ci)=>{if(ci===lesson.quiz.answer)c.classList.add('correct');});
+          store.completed[k]=true;saveStore();renderDots();}
+      };
+      opts.appendChild(b);});
+  }
+}
+
+function runRealJS(code,outEl){
+  const logs=[];
+  const fake={log:(...a)=>logs.push(a.map(fmt).join(' ')),error:(...a)=>logs.push('⚠️ '+a.map(fmt).join(' ')),warn:(...a)=>logs.push('⚠️ '+a.map(fmt).join(' '))};
+  try{const fn=new Function('console','"use strict";\n'+code);fn(fake);
+    outEl.textContent=logs.length?logs.join('\n'):'(ran fine — but nothin\' was logged, matey)';
+  }catch(err){outEl.textContent='💥 '+err.name+': '+err.message;say('Arrr, the code hit a reef! '+err.name+': '+err.message);}
+}
+function fmt(v){if(typeof v==='string')return v;try{return JSON.stringify(v);}catch{return String(v);}}
+
+/* ===== copy-to-clipboard (with legacy fallback for sandboxes) ===== */
+function copyText(text,btn){
+  const done=ok=>{if(!btn)return;const orig=btn.innerHTML;btn.innerHTML=ok?'✅ Copied!':'⚠️ Press Ctrl+C';btn.classList.toggle('copied',ok);setTimeout(()=>{btn.innerHTML=orig;btn.classList.remove('copied');},1500);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>done(true)).catch(()=>legacyCopy(text,done));}else{legacyCopy(text,done);}
+}
+function legacyCopy(text,done){try{const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.top='-1000px';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');document.body.removeChild(ta);done(ok);}catch(e){done(false);}}
+
+/* ===== wiring ===== */
+document.querySelectorAll('.langbtn').forEach(btn=>btn.onclick=()=>{state.lang=btn.dataset.lang;state.index=0;render();});
+$('#prevBtn').onclick=()=>{if(state.index>0){state.index--;render();}else say("Ye be at the first lesson — can't sail backwards off the map!");};
+$('#nextBtn').onclick=()=>{const max=COURSE[state.lang].lessons.length-1;if(state.index<max){state.index++;render();}else say("Last lesson for <b>"+COURSE[state.lang].name+"</b>! Try another flag. 🏴‍☠️");};
+
+render();
+</script>
+</body>
+</html>
