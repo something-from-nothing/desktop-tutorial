@@ -114,10 +114,18 @@
     <button class="btn btn-gold" id="nextBtn">Next ▶</button>
   </div>
 
+  <div style="text-align:center;margin-top:26px">
+    <button class="btn btn-gold" id="copySourceBtn">📋 Copy this page's full code</button>
+    <div class="note-sim" style="color:#9fb6c2;margin-top:8px">Paste into JS.spin / JSFiddle / CodePen to run it there.</div>
+  </div>
+
   <footer class="tiny">Learning App file • Pairs with pirate-dashboard.html • Real JavaScript runs in yer browser</footer>
 </div>
 
 <script>
+/* capture this file's pristine full source BEFORE any DOM mutation */
+const PAGE_SOURCE='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+
 /* ===== shared core (identical in both files) ===== */
 const STORAGE_KEY='codebeard_progress_v2';
 let store={xp:0,completed:{},viewed:{},activeDates:[],created:null};
@@ -341,6 +349,7 @@ function legacyCopy(text,done){try{const ta=document.createElement('textarea');t
 document.querySelectorAll('.langbtn').forEach(btn=>btn.onclick=()=>{state.lang=btn.dataset.lang;state.index=0;render();});
 $('#prevBtn').onclick=()=>{if(state.index>0){state.index--;render();}else say("Ye be at the first lesson — can't sail backwards off the map!");};
 $('#nextBtn').onclick=()=>{const max=COURSE[state.lang].lessons.length-1;if(state.index<max){state.index++;render();}else say("Last lesson for <b>"+COURSE[state.lang].name+"</b>! Try another flag. 🏴‍☠️");};
+$('#copySourceBtn').onclick=()=>copyText(PAGE_SOURCE,$('#copySourceBtn'));
 
 render();
 </script>

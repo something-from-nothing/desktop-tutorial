@@ -122,10 +122,18 @@
     <p class="muted-note" style="margin-top:10px">Yer streak 'n lessons be saved on this device 'n shared with the Learning App file. Keep both files in the same folder so the buttons link up.</p>
   </div>
 
+  <div style="text-align:center;margin-top:26px">
+    <button class="btn btn-gold" id="copySourceBtn">📋 Copy this page's full code</button>
+    <div class="muted-note" style="margin-top:8px">Paste into JS.spin / JSFiddle / CodePen to run it there.</div>
+  </div>
+
   <footer class="tiny">Dashboard file • Pairs with pirate-learning-app.html • Runs in any browser</footer>
 </div>
 
 <script>
+/* capture this file's pristine full source BEFORE any DOM mutation */
+const PAGE_SOURCE='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+
 /* ===== shared core (identical in both files) ===== */
 const STORAGE_KEY='codebeard_progress_v2';
 let store={xp:0,completed:{},viewed:{},activeDates:[],created:null};
@@ -195,6 +203,15 @@ $('#resetProgress').onclick=()=>{
     store={xp:0,completed:{},viewed:{},activeDates:[],created:today()};saveStore();renderDashboard();
   }
 };
+/* ===== copy-to-clipboard (with legacy fallback for sandboxes) ===== */
+function copyText(text,btn){
+  const orig=btn?btn.innerHTML:'';
+  const done=ok=>{if(!btn)return;btn.innerHTML=ok?'✅ Copied!':'⚠️ Press Ctrl+C';setTimeout(()=>{btn.innerHTML=orig;},1600);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>done(true)).catch(()=>legacyCopy(text,done));}else{legacyCopy(text,done);}
+}
+function legacyCopy(text,done){try{const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.top='-1000px';document.body.appendChild(ta);ta.select();const ok=document.execCommand('copy');document.body.removeChild(ta);done(ok);}catch(e){done(false);}}
+$('#copySourceBtn').onclick=()=>copyText(PAGE_SOURCE,$('#copySourceBtn'));
+
 /* live-refresh if the Learning App (other tab) updates progress */
 window.addEventListener('storage',e=>{if(e.key===STORAGE_KEY)renderDashboard();});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)renderDashboard();});
