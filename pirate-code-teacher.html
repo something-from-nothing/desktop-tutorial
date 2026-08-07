@@ -140,6 +140,11 @@
   .codewrap{margin:14px 0;border-radius:10px;overflow:hidden;border:1px solid #0a1b22;box-shadow:0 6px 14px rgba(0,0,0,.3);}
   .codebar{background:#12212a;color:#9fb6c2;font-family:monospace;font-size:12px;padding:6px 12px;display:flex;justify-content:space-between;align-items:center;}
   .codebar .dots span{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;}
+  .codebar .right{display:flex;align-items:center;gap:10px;}
+  .copybtn{font-family:inherit;cursor:pointer;border:1px solid #35566a;background:#1b3644;color:#bfe0f0;
+    padding:3px 10px;border-radius:6px;font-size:11px;display:flex;align-items:center;gap:5px;transition:background .1s,color .1s;}
+  .copybtn:hover{background:#25485a;} .copybtn:active{transform:translateY(1px);}
+  .copybtn.copied{background:var(--good);color:#eafff3;border-color:#8affc0;}
   pre.code{margin:0;background:var(--code-bg);color:var(--code-fg);padding:14px 16px;overflow-x:auto;
     font-family:"SF Mono","Consolas","Menlo",monospace;font-size:14px;line-height:1.5;}
   pre.code .kw{color:#ff9d6e;} pre.code .str{color:#a3e39b;} pre.code .com{color:#6f8a97;font-style:italic;} pre.code .num{color:#f0c674;}
@@ -555,7 +560,7 @@ function render(){
     <div class="codewrap">
       <div class="codebar">
         <span class="dots"><span style="background:#ff5f56"></span><span style="background:#ffbd2e"></span><span style="background:#27c93f"></span></span>
-        <span>${course.name} — example.${ext}</span>
+        <span class="right"><span>${course.name} — example.${ext}</span><button class="copybtn" id="copyCodeBtn">📋 Copy</button></span>
       </div>
       <pre class="code">${codeHtml}</pre>
       <div class="output"><span class="muted">▶ output:</span>\n${outHtml}</div>
@@ -565,13 +570,15 @@ function render(){
     html+=`<div class="tryit"><h3>⚓ Try it yerself — this be REAL JavaScript!</h3>
       <textarea class="editor" id="editor">${lesson.starter.replace(/</g,'&lt;')}</textarea>
       <div class="runrow"><button class="btn btn-run" id="runBtn">▶ Run the code</button>
-      <button class="btn btn-ghost" id="resetBtn">Reset</button></div>
+      <button class="btn btn-ghost" id="resetBtn">Reset</button>
+      <button class="btn btn-ghost" id="copyEditorBtn">📋 Copy</button></div>
       <div class="runout" id="runout"><span style="color:#4f8a6a">// yer output appears here...</span></div></div>`;
   } else {
     html+=`<div class="tryit"><h3>⚓ Try it yerself — edit 'n predict the output!</h3>
       <textarea class="editor" id="editor">${lesson.code.replace(/</g,'&lt;')}</textarea>
       <div class="runrow"><button class="btn btn-run" id="runBtn">▶ Run (simulated)</button>
-      <button class="btn btn-ghost" id="resetBtn">Reset</button></div>
+      <button class="btn btn-ghost" id="resetBtn">Reset</button>
+      <button class="btn btn-ghost" id="copyEditorBtn">📋 Copy</button></div>
       <div class="runout" id="runout"><span style="color:#4f8a6a">// press Run to see the expected output...</span></div>
       <div class="note-sim">Note: ${course.name} needs a ${state.lang==='python'?'Python interpreter':'compiler'} to run for real. Here we show the expected output so ye can learn safely aboard ship.</div></div>`;
   }
@@ -595,6 +602,10 @@ function wireLesson(lesson){
   if(runBtn) runBtn.onclick=()=>{ lesson.runnable ? runRealJS(editor.value,runout) : (runout.textContent=lesson.output||'(no output)'); };
   if(resetBtn) resetBtn.onclick=()=>{ editor.value = lesson.runnable?lesson.starter:lesson.code;
     runout.innerHTML='<span style="color:#4f8a6a">// reset. press Run again.</span>'; };
+
+  const copyCodeBtn=$('#copyCodeBtn'), copyEditorBtn=$('#copyEditorBtn');
+  if(copyCodeBtn) copyCodeBtn.onclick=()=>copyText(lesson.code, copyCodeBtn);
+  if(copyEditorBtn) copyEditorBtn.onclick=()=>copyText(editor.value, copyEditorBtn);
 
   if(lesson.quiz){
     const opts=$('#opts'), feedback=$('#feedback'), k=keyOf(state.lang,state.index);
@@ -639,6 +650,31 @@ function runRealJS(code,outEl){
   }
 }
 function fmt(v){ if(typeof v==='string') return v; try{return JSON.stringify(v);}catch{return String(v);} }
+
+/* ---------- copy-to-clipboard (with legacy fallback for sandboxes) ---------- */
+function copyText(text, btn){
+  const done=ok=>{
+    if(!btn) return;
+    const orig=btn.innerHTML;
+    btn.innerHTML = ok ? '✅ Copied!' : '⚠️ Press Ctrl+C';
+    btn.classList.toggle('copied', ok);
+    setTimeout(()=>{ btn.innerHTML=orig; btn.classList.remove('copied'); }, 1500);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>done(true)).catch(()=>legacyCopy(text,done));
+  } else { legacyCopy(text,done); }
+}
+function legacyCopy(text, done){
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=text; ta.setAttribute('readonly','');
+    ta.style.position='fixed'; ta.style.top='-1000px';
+    document.body.appendChild(ta); ta.select();
+    const ok=document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  }catch(e){ done(false); }
+}
 
 /* =====================================================================
    EVENT WIRING
