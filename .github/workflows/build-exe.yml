@@ -20,9 +20,9 @@ jobs:
         run: >
           pyinstaller --noconfirm --onefile --windowed --name DeskAgent
           --collect-data jsonschema_specifications
-          main.py
+          deskagent.py
       - name: Check it imports
-        run: python -c "import deskagent.agent, deskagent.gui"
+        run: python -c "import deskagent"
       - uses: actions/upload-artifact@v4
         with:
           name: DeskAgent

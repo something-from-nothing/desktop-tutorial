@@ -6,7 +6,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt || goto :error
 pyinstaller --noconfirm --onefile --windowed --name DeskAgent ^
   --collect-data jsonschema_specifications ^
-  main.py || goto :error
+  deskagent.py || goto :error
 echo.
 echo Done. Your app is dist\DeskAgent.exe
 goto :eof
