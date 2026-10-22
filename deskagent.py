@@ -1,81 +1,96 @@
-"""Desk Agent: lets Claude do jobs on a Windows laptop.
+"""Desk Agent: your own AI that runs on your laptop.
 
-It can see and control the screen, search the web, read and write code in a
-projects folder, run commands, and use any MCP server you plug in. You can pick
-the model yourself or leave it on Auto, which picks one for each job. It keeps a
-memory of what it learns about you and gets more useful the more you use it.
+No accounts, no API keys, no internet needed once a model is downloaded. The AI
+runs on the laptop through llama.cpp (llama-server.exe, shipped with the app).
 
-Everything is in this one file. Build the EXE with build.bat, or let the GitHub
-workflow do it.
+It can chat, write and run code in a projects folder, open apps, files and web
+pages, type into windows, read web pages, and use any MCP server you plug in. You
+can switch between models or leave it on Auto, which picks one for each job. It
+keeps a memory of what it learns about you and gets more useful the more you use it.
+
+Everything is in this one file. Build it with build.bat, or let the GitHub
+workflow make the installer.
 """
 
 import asyncio
-import base64
-import io
+import html
 import json
 import logging
 import os
-import platform
 import queue
+import re
+import shutil
+import socket
 import subprocess
 import sys
 import threading
 import time
 import tkinter as tk
+import urllib.parse
+import urllib.request
 from contextlib import AsyncExitStack
 from datetime import date, datetime
 from pathlib import Path
-from tkinter import scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-if sys.platform == "win32":
-    import ctypes
-
-    # Without this, Windows display scaling (125%, 150%) makes clicks land in the wrong place.
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
-        ctypes.windll.user32.SetProcessDPIAware()
-
-import anthropic
 import jsonschema
-import mss
 import pyautogui
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from PIL import Image
 
 log = logging.getLogger("deskagent")
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 # ---------------------------------------------------------------- models
 
-# Prices are US dollars per million tokens (input, output), used for the spend counter.
-MODELS = {
-    "claude-fable-5-1": {"label": "Fable 5.1 (smartest, priciest)", "price": (10.0, 50.0), "fallbacks": True, "updates": True},
-    "claude-opus-5-5": {"label": "Opus 5.5 (strong all rounder)", "price": (4.0, 20.0), "fallbacks": True, "updates": True},
-    "claude-sonnet-5-5": {"label": "Sonnet 5.5 (fast, cheaper)", "price": (2.0, 10.0), "fallbacks": True, "updates": True},
-    "claude-haiku-5-5": {"label": "Haiku 5.5 (quickest, cheapest)", "price": (0.10, 0.50), "fallbacks": False, "updates": False},
+# Downloadable models. The exact file is looked up on Hugging Face at download time,
+# picking the first single file whose name contains the quant, so renamed files still work.
+CATALOG = {
+    "quick": {
+        "label": "Quick (Qwen 2.5, 1.5B)",
+        "repo": "bartowski/Qwen2.5-1.5B-Instruct-GGUF",
+        "quant": "Q4_K_M",
+        "size_gb": 1.0,
+        "about": "Fast replies, fine for chat and simple jobs. Runs on almost anything.",
+    },
+    "general": {
+        "label": "General (Qwen 3, 4B)",
+        "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        "quant": "Q4_K_M",
+        "size_gb": 2.5,
+        "about": "The best all rounder for this laptop. Good at using tools. Start with this one.",
+    },
+    "coder": {
+        "label": "Coder (Qwen 2.5 Coder, 7B)",
+        "repo": "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF",
+        "quant": "Q4_K_M",
+        "size_gb": 4.7,
+        "about": "Best at writing programs. Slower, and wants 8 GB of RAM or more.",
+    },
 }
 AUTO = "auto"
-AUTO_LABEL = "Auto (picks the best model for each job)"
-ROUTER_MODEL = "claude-haiku-5-5"
-EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+AUTO_LABEL = "Auto (picks a model for each job)"
+CODE_WORDS = re.compile(
+    r"\b(code|coding|program|script|python|javascript|html|css|function|bug|debug|compile|"
+    r"app|website|game|sql|class|error|traceback|refactor|api)\b", re.I)
+ACTION_WORDS = re.compile(r"\b(open|make|create|write|build|run|find|search|save|install|type|fix|file|folder)\b", re.I)
 
 
 # ---------------------------------------------------------------- settings and saved data
 
 DEFAULTS = {
-    "api_key": "",
     "model": AUTO,
-    "effort": "medium",
-    "computer_use": True,
-    "web_search": True,
+    "context": 8192,
+    "threads": 0,  # 0 means let llama.cpp decide
+    "desktop_tools": True,
+    "web_tools": True,
     "coding_tools": True,
     "learn": True,
     "confirm_actions": True,
-    "max_steps": 60,
-    "screenshot_max_width": 1280,
+    "max_steps": 25,
     "workspace": str(Path.home() / "Documents" / "DeskAgent Projects"),
+    "custom_models": {},  # name -> path to a .gguf file you added yourself
     # Same shape as Claude Desktop's "mcpServers" block, so configs can be copied across.
     # stdio server:  {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\me\\Documents"]}
     # remote server: {"url": "https://example.com/mcp"}
@@ -86,6 +101,14 @@ DEFAULTS = {
 def app_dir() -> Path:
     base = os.environ.get("APPDATA") or Path.home() / ".config"
     path = Path(base) / "DeskAgent"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def models_dir() -> Path:
+    # Model files are gigabytes, so they go in Local, not the Roaming profile.
+    base = os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "share"
+    path = Path(base) / "DeskAgent" / "models"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -126,7 +149,12 @@ def load_stats() -> dict:
         with stats_path().open(encoding="utf-8") as f:
             return json.load(f)
     except (OSError, ValueError):
-        return {"first_used": date.today().isoformat(), "jobs": 0, "spend_usd": 0.0, "models": {}}
+        return {"first_used": date.today().isoformat(), "jobs": 0, "words_written": 0, "models": {}}
+
+
+def save_stats(stats: dict) -> None:
+    with stats_path().open("w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
 
 
 def open_file(path):
@@ -136,146 +164,235 @@ def open_file(path):
         subprocess.Popen(["xdg-open", str(path)])
 
 
-# ---------------------------------------------------------------- screen control
+def model_file(key: str, cfg: dict) -> Path | None:
+    """Where a model's .gguf lives, or None if it isn't downloaded."""
+    if key in cfg.get("custom_models", {}):
+        path = Path(cfg["custom_models"][key])
+        return path if path.exists() else None
+    folder = models_dir() / key
+    files = sorted(folder.glob("*.gguf")) if folder.exists() else []
+    return files[0] if files else None
 
-pyautogui.FAILSAFE = True  # slamming the mouse into a screen corner is the emergency stop
-pyautogui.PAUSE = 0.05
 
-# Names Claude uses for keys, mapped to the names pyautogui understands.
-KEY_ALIASES = {
-    "return": "enter", "escape": "esc", "super": "win", "cmd": "win", "meta": "win",
-    "control": "ctrl", "page_up": "pageup", "page_down": "pagedown", "prior": "pageup",
-    "next": "pagedown", "back_space": "backspace", "arrowup": "up", "arrowdown": "down",
-    "arrowleft": "left", "arrowright": "right",
-}
+def installed_models(cfg: dict) -> dict:
+    """key -> label for every model that is ready to use."""
+    found = {k: m["label"] for k, m in CATALOG.items() if model_file(k, cfg)}
+    found.update({k: f"{k} (your file)" for k in cfg.get("custom_models", {}) if model_file(k, cfg)})
+    return found
+
+
+# ---------------------------------------------------------------- downloading models
+
+def http_get(url, timeout=30):
+    req = urllib.request.Request(url, headers={"User-Agent": "DeskAgent"})
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def download_model(key: str, progress, cancel: threading.Event):
+    """Downloads a catalog model. progress(done_bytes, total_bytes) is called as it goes."""
+    entry = CATALOG[key]
+    with http_get(f"https://huggingface.co/api/models/{entry['repo']}") as r:
+        files = [s["rfilename"] for s in json.load(r).get("siblings", [])]
+    quant = entry["quant"].lower()
+    choices = [f for f in files if f.lower().endswith(".gguf") and quant in f.lower() and "-of-" not in f]
+    if not choices:
+        raise RuntimeError(f"No {entry['quant']} file found in {entry['repo']}")
+    name = sorted(choices, key=len)[0]
+    url = f"https://huggingface.co/{entry['repo']}/resolve/main/{urllib.parse.quote(name)}"
+
+    folder = models_dir() / key
+    folder.mkdir(parents=True, exist_ok=True)
+    part = folder / (name + ".part")
+    done = part.stat().st_size if part.exists() else 0
+    req = urllib.request.Request(url, headers={"User-Agent": "DeskAgent", "Range": f"bytes={done}-"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        if r.status != 206:  # server ignored the resume request, start again
+            done = 0
+        total = done + int(r.headers.get("Content-Length", 0))
+        with part.open("ab" if done else "wb") as f:
+            while chunk := r.read(1 << 20):
+                if cancel.is_set():
+                    return None
+                f.write(chunk)
+                done += len(chunk)
+                progress(done, total)
+    final = folder / name
+    part.replace(final)
+    return final
+
+
+# ---------------------------------------------------------------- the local AI engine
+
+def find_llama_server() -> Path | None:
+    exe = "llama-server.exe" if sys.platform == "win32" else "llama-server"
+    here = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
+    for candidate in (here / "llama" / exe, here / exe):
+        if candidate.exists():
+            return candidate
+    found = shutil.which("llama-server")
+    return Path(found) if found else None
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class Engine:
+    """Runs llama-server in the background and talks to it over its local
+    OpenAI style chat API. Nothing leaves the laptop."""
+
+    def __init__(self, cfg: dict, errlog):
+        self.cfg = cfg
+        self.errlog = errlog
+        self.proc: subprocess.Popen | None = None
+        self.model: str | None = None
+        self.port = 0
+        self.lock = threading.Lock()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.port}"
+
+    def load(self, key: str, status=lambda text: None):
+        """Starts llama-server with the given model, unless it is already running it."""
+        with self.lock:
+            if self.model == key and self.proc and self.proc.poll() is None:
+                return
+            self.stop()
+            server = find_llama_server()
+            if not server:
+                raise RuntimeError("llama-server was not found. Reinstall Desk Agent, or put llama-server.exe in a 'llama' folder next to the app.")
+            path = model_file(key, self.cfg)
+            if not path:
+                raise RuntimeError(f"The {key} model is not downloaded. Open Models to get it.")
+            status(f"Loading {path.name}...")
+            self.port = free_port()
+            args = [str(server), "-m", str(path), "--host", "127.0.0.1", "--port", str(self.port),
+                    "-c", str(self.cfg["context"]), "--jinja"]
+            if self.cfg["threads"]:
+                args += ["-t", str(self.cfg["threads"])]
+            log.info("starting %s", " ".join(args))
+            self.proc = subprocess.Popen(args, stdout=self.errlog, stderr=self.errlog, creationflags=NO_WINDOW)
+            deadline = time.time() + 300
+            while time.time() < deadline:
+                if self.proc.poll() is not None:
+                    raise RuntimeError(f"The model failed to load. Details in {app_dir() / 'engine.log'}")
+                try:
+                    with urllib.request.urlopen(self.url + "/health", timeout=2) as r:
+                        if r.status == 200:
+                            self.model = key
+                            return
+                except OSError:
+                    pass
+                time.sleep(0.5)
+            raise RuntimeError("The model took too long to load.")
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc = None
+        self.model = None
+
+    def chat(self, messages, tools=None, on_text=lambda t: None, stop_event=None, max_tokens=4096):
+        """Streams one reply. Returns the assistant message (content and any tool_calls)."""
+        body = {"messages": messages, "stream": True, "max_tokens": max_tokens, "temperature": 0.4}
+        if tools:
+            body["tools"] = tools
+        req = urllib.request.Request(self.url + "/v1/chat/completions", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        content, calls, finish = [], {}, None
+        with urllib.request.urlopen(req, timeout=900) as r:
+            for raw in r:
+                if stop_event and stop_event.is_set():
+                    break
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                choice = json.loads(data)["choices"][0]
+                delta = choice.get("delta") or {}
+                if delta.get("content"):
+                    content.append(delta["content"])
+                    on_text(delta["content"])
+                for tc in delta.get("tool_calls") or []:
+                    slot = calls.setdefault(tc.get("index", 0), {"id": "", "name": "", "arguments": ""})
+                    slot["id"] = tc.get("id") or slot["id"]
+                    fn = tc.get("function") or {}
+                    slot["name"] += fn.get("name") or ""
+                    slot["arguments"] += fn.get("arguments") or ""
+                finish = choice.get("finish_reason") or finish
+        message = {"role": "assistant", "content": strip_thinking("".join(content))}
+        if calls:
+            message["tool_calls"] = [
+                {"id": c["id"] or f"call_{i}", "type": "function", "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+                for i, c in sorted(calls.items())
+            ]
+        return message, finish
+
+
+def strip_thinking(text: str) -> str:
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+
+
+# ---------------------------------------------------------------- tools
+
+def _tool(name, description, properties, required):
+    return {"type": "function", "function": {
+        "name": name, "description": description,
+        "parameters": {"type": "object", "properties": properties, "required": required},
+    }}
+
+
+CODING_TOOLS = [
+    _tool("list_files", "List files and folders in the projects folder. Path is relative to the projects folder; use '.' for the top.",
+          {"path": {"type": "string"}}, ["path"]),
+    _tool("read_file", "Read a text file from the projects folder.", {"path": {"type": "string"}}, ["path"]),
+    _tool("write_file", "Create or overwrite a text file in the projects folder. Folders are made as needed. Always send the whole file.",
+          {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
+    _tool("run_command", "Run a command in a Windows command prompt inside the projects folder, for example 'python app.py'. Times out after 120 seconds.",
+          {"command": {"type": "string"}, "folder": {"type": "string", "description": "Subfolder to run in. Defaults to the top."}}, ["command"]),
+]
+DESKTOP_TOOLS = [
+    _tool("open", "Open an app, file, folder or web address on the laptop, for example 'notepad', 'calc', 'C:\\\\Users\\\\me\\\\Documents' or 'https://bbc.co.uk'.",
+          {"target": {"type": "string"}}, ["target"]),
+    _tool("list_windows", "List the titles of the windows that are open.", {}, []),
+    _tool("focus_window", "Bring a window to the front, matching part of its title.", {"title": {"type": "string"}}, ["title"]),
+    _tool("type_text", "Type text into whichever window is at the front. Call focus_window first.", {"text": {"type": "string"}}, ["text"]),
+    _tool("press_keys", "Press a key or shortcut in the front window, for example 'enter', 'ctrl+s', 'alt+tab'.", {"keys": {"type": "string"}}, ["keys"]),
+]
+WEB_TOOLS = [
+    _tool("web_search", "Search the web and get the top results with links.", {"query": {"type": "string"}}, ["query"]),
+    _tool("read_webpage", "Fetch a web page and return its text.", {"url": {"type": "string"}}, ["url"]),
+]
+LOCAL_TOOLS = {t["function"]["name"]: t for t in CODING_TOOLS + DESKTOP_TOOLS + WEB_TOOLS}
+HARMLESS = {"list_files", "read_file", "list_windows", "web_search", "read_webpage"}
+
+
+class Workspace:
+    """The one folder the coding tools may touch."""
+
+    def __init__(self, root: str):
+        self.root = Path(root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def path(self, rel: str) -> Path:
+        path = (self.root / (rel or ".")).resolve()
+        if path != self.root and self.root not in path.parents:
+            raise ValueError(f"{rel} is outside the projects folder")
+        return path
 
 
 def _combo(text: str) -> list[str]:
-    keys = [k.strip().lower() for k in text.split("+") if k.strip()]
-    return [KEY_ALIASES.get(k, k) for k in keys]
-
-
-class Computer:
-    """Runs the computer toolset actions. Screenshots are scaled down before they are
-    sent, and Claude's coordinates are in that scaled space, so every coordinate is
-    divided by the scale factor before the mouse moves."""
-
-    def __init__(self, max_width: int = 1280):
-        self.max_width = max_width
-        self.scale = 1.0
-
-    def _png(self, img: Image.Image) -> str:
-        buf = io.BytesIO()
-        img.save(buf, format="PNG", optimize=True)
-        return base64.standard_b64encode(buf.getvalue()).decode()
-
-    def _grab(self) -> Image.Image:
-        with mss.mss() as sct:
-            shot = sct.grab(sct.monitors[1])
-            return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-
-    def screenshot(self) -> str:
-        img = self._grab()
-        self.scale = min(1.0, self.max_width / img.width)
-        if self.scale < 1.0:
-            img = img.resize((round(img.width * self.scale), round(img.height * self.scale)), Image.LANCZOS)
-        return self._png(img)
-
-    def zoom(self, region) -> str:
-        x0, y0, x1, y1 = (round(v / self.scale) for v in region)
-        img = self._grab().crop((x0, y0, x1, y1))
-        if img.width > self.max_width:
-            ratio = self.max_width / img.width
-            img = img.resize((self.max_width, round(img.height * ratio)), Image.LANCZOS)
-        return self._png(img)
-
-    def _xy(self, coordinate):
-        if coordinate is None:
-            return None
-        x, y = coordinate
-        return round(x / self.scale), round(y / self.scale)
-
-    def _with_modifiers(self, text, fn):
-        mods = _combo(text) if text else []
-        for m in mods:
-            pyautogui.keyDown(m)
-        try:
-            fn()
-        finally:
-            for m in reversed(mods):
-                pyautogui.keyUp(m)
-
-    def run(self, action: str, inp: dict):
-        """Returns ("image", base64_png) or ("text", message)."""
-        xy = self._xy(inp.get("coordinate"))
-
-        if action == "screenshot":
-            return "image", self.screenshot()
-        if action == "zoom":
-            return "image", self.zoom(inp["region"])
-        if action == "cursor_position":
-            x, y = pyautogui.position()
-            return "text", f"[{round(x * self.scale)}, {round(y * self.scale)}]"
-
-        clicks = {
-            "left_click": ("left", 1), "right_click": ("right", 1), "middle_click": ("middle", 1),
-            "double_click": ("left", 2), "triple_click": ("left", 3),
-        }
-        if action in clicks:
-            button, n = clicks[action]
-            pos = xy or pyautogui.position()
-            self._with_modifiers(inp.get("text"), lambda: pyautogui.click(*pos, clicks=n, interval=0.08, button=button))
-        elif action == "left_click_drag":
-            sx, sy = self._xy(inp["start_coordinate"])
-
-            def drag():
-                pyautogui.moveTo(sx, sy)
-                pyautogui.dragTo(*xy, duration=0.4, button="left")
-
-            self._with_modifiers(inp.get("text"), drag)
-        elif action == "mouse_move":
-            pyautogui.moveTo(*xy, duration=0.15)
-        elif action == "left_mouse_down":
-            pyautogui.mouseDown()
-        elif action == "left_mouse_up":
-            pyautogui.mouseUp()
-        elif action == "scroll":
-            amount = int(inp.get("scroll_amount", 3))
-            direction = inp["scroll_direction"]
-            if xy:
-                pyautogui.moveTo(*xy)
-
-            def do_scroll():
-                if direction in ("up", "down"):
-                    pyautogui.scroll(amount * 120 * (1 if direction == "up" else -1))
-                else:
-                    pyautogui.hscroll(amount * 120 * (1 if direction == "right" else -1))
-
-            self._with_modifiers(inp.get("text"), do_scroll)
-        elif action == "type":
-            # write() only handles plain ASCII; paste anything else through the clipboard.
-            text = inp["text"]
-            if text.isascii():
-                pyautogui.write(text, interval=0.01)
-            else:
-                _paste(text)
-        elif action == "key":
-            for _ in range(int(inp.get("repeat", 1))):
-                pyautogui.hotkey(*_combo(inp["text"]))
-        elif action == "hold_key":
-            keys = _combo(inp["text"])
-            for k in keys:
-                pyautogui.keyDown(k)
-            time.sleep(min(float(inp.get("duration", 1)), 300))
-            for k in reversed(keys):
-                pyautogui.keyUp(k)
-        elif action == "wait":
-            time.sleep(min(float(inp.get("duration", 1)), 300))
-        else:
-            raise ValueError(f"Unsupported action: {action}")
-
-        time.sleep(0.3)  # let the screen settle before the next action
-        return "text", "OK"
+    aliases = {"return": "enter", "escape": "esc", "control": "ctrl", "windows": "win", "super": "win"}
+    return [aliases.get(k.strip().lower(), k.strip().lower()) for k in text.split("+") if k.strip()]
 
 
 def _paste(text: str):
@@ -289,68 +406,72 @@ def _paste(text: str):
     root.destroy()
 
 
-# ---------------------------------------------------------------- coding tools
-
-def _tool(name, description, properties, required):
-    return {
-        "name": name,
-        "description": description,
-        "input_schema": {"type": "object", "properties": properties, "required": required, "additionalProperties": False},
-        "eager_input_streaming": True,
-    }
+def _page_text(raw: str) -> str:
+    raw = re.sub(r"(?is)<(script|style|noscript|svg|head)[^>]*>.*?</\1>", " ", raw)
+    raw = re.sub(r"(?i)<(br|p|div|li|h\d|tr)[^>]*>", "\n", raw)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", raw))
+    text = re.sub(r"[ \t]+", " ", text)
+    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
-CODING_TOOLS = [
-    _tool("list_files", "List files and folders in the projects folder. Path is relative to the projects folder; use '.' for the top.",
-          {"path": {"type": "string"}}, ["path"]),
-    _tool("read_file", "Read a text file from the projects folder.",
-          {"path": {"type": "string"}}, ["path"]),
-    _tool("write_file", "Create or overwrite a text file in the projects folder. Folders are created as needed. Always send the whole file.",
-          {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
-    _tool("run_command", "Run a command in a Windows command prompt inside the projects folder, for example 'python app.py' or 'pip install requests'. Times out after 120 seconds. Use the computer tools instead for anything with a window.",
-          {"command": {"type": "string"}, "folder": {"type": "string", "description": "Subfolder to run in, relative to the projects folder. Defaults to the top."}}, ["command"]),
-]
-CODING_TOOL_NAMES = {t["name"] for t in CODING_TOOLS}
-
-
-class Workspace:
-    """The one folder the coding tools may touch."""
-
-    def __init__(self, root: str):
-        self.root = Path(root).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
-
-    def _path(self, rel: str) -> Path:
-        path = (self.root / (rel or ".")).resolve()
-        if path != self.root and self.root not in path.parents:
-            raise ValueError(f"{rel} is outside the projects folder")
-        return path
-
-    def run(self, name: str, inp: dict) -> str:
-        if name == "list_files":
-            path = self._path(inp["path"])
-            entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-            lines = [f"{p.name}/" if p.is_dir() else f"{p.name}  ({p.stat().st_size} bytes)" for p in entries[:500]]
-            return "\n".join(lines) or "(empty folder)"
-        if name == "read_file":
-            text = self._path(inp["path"]).read_text(encoding="utf-8", errors="replace")
-            return text if len(text) < 200_000 else text[:200_000] + "\n...(cut off, file is too long)"
-        if name == "write_file":
-            path = self._path(inp["path"])
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(inp["content"], encoding="utf-8")
-            return f"Saved {path}"
-        if name == "run_command":
-            flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            proc = subprocess.run(
-                inp["command"], shell=True, cwd=self._path(inp.get("folder", ".")), capture_output=True,
-                text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=flags,
-            )
-            out = (proc.stdout + ("\n" + proc.stderr if proc.stderr else "")).strip()
-            if len(out) > 30_000:
-                out = out[:15_000] + "\n...(middle cut)...\n" + out[-15_000:]
-            return f"Exit code {proc.returncode}\n{out}"
-        raise ValueError(f"Unknown tool {name}")
+def run_local_tool(name: str, args: dict, workspace: Workspace | None) -> str:
+    if name == "list_files":
+        path = workspace.path(args["path"])
+        entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+        return "\n".join(f"{p.name}/" if p.is_dir() else f"{p.name}  ({p.stat().st_size} bytes)" for p in entries[:300]) or "(empty folder)"
+    if name == "read_file":
+        return workspace.path(args["path"]).read_text(encoding="utf-8", errors="replace")
+    if name == "write_file":
+        path = workspace.path(args["path"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(args["content"], encoding="utf-8")
+        return f"Saved {path}"
+    if name == "run_command":
+        proc = subprocess.run(args["command"], shell=True, cwd=workspace.path(args.get("folder", ".")), capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=120, creationflags=NO_WINDOW)
+        return f"Exit code {proc.returncode}\n{(proc.stdout + chr(10) + proc.stderr).strip()}"
+    if name == "open":
+        target = args["target"]
+        if sys.platform == "win32":
+            os.startfile(target) if Path(target).exists() or "://" in target else subprocess.Popen(f'start "" {target}', shell=True)
+        else:
+            subprocess.Popen(["xdg-open", target])
+        time.sleep(1.5)
+        return f"Opened {target}"
+    if name == "list_windows":
+        titles = [t for t in pyautogui.getAllTitles() if t.strip()] if hasattr(pyautogui, "getAllTitles") else []
+        return "\n".join(titles) or "No windows found."
+    if name == "focus_window":
+        wins = [w for w in pyautogui.getWindowsWithTitle(args["title"]) if w.title.strip()]
+        if not wins:
+            return f"No window with '{args['title']}' in its title."
+        win = wins[0]
+        if win.isMinimized:
+            win.restore()
+        win.activate()
+        time.sleep(0.5)
+        return f"'{win.title}' is now at the front."
+    if name == "type_text":
+        text = args["text"]
+        pyautogui.write(text, interval=0.01) if text.isascii() else _paste(text)
+        return "Typed."
+    if name == "press_keys":
+        pyautogui.hotkey(*_combo(args["keys"]))
+        time.sleep(0.3)
+        return "Pressed."
+    if name == "web_search":
+        url = "https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(args["query"])
+        with http_get(url) as r:
+            page = r.read().decode("utf-8", "replace")
+        results = []
+        for href, title in re.findall(r'class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page)[:8]:
+            link = urllib.parse.parse_qs(urllib.parse.urlparse(html.unescape(href)).query).get("uddg", [href])[0]
+            results.append(f"{_page_text(title)}\n{link}")
+        return "\n\n".join(results) or "No results."
+    if name == "read_webpage":
+        with http_get(args["url"]) as r:
+            return _page_text(r.read(3_000_000).decode("utf-8", "replace"))
+    raise ValueError(f"Unknown tool {name}")
 
 
 # ---------------------------------------------------------------- MCP servers
@@ -359,7 +480,7 @@ SEP = "__"
 
 
 class MCPBridge:
-    """Connects to MCP servers and exposes their tools to Claude. The MCP client is
+    """Connects to MCP servers and exposes their tools to the model. The MCP client is
     async and the rest of the app is not, so all servers share one event loop on a
     background thread. Tool names are prefixed with the server name (server__tool)."""
 
@@ -410,37 +531,31 @@ class MCPBridge:
         result = await session.list_tools()
         self.sessions[name] = session
         for tool in result.tools:
-            self.tools.append({
-                "name": f"{name}{SEP}{tool.name}"[:64],
-                "description": (tool.description or tool.title or tool.name)[:1024],
-                "input_schema": tool.input_schema or {"type": "object", "properties": {}},
-                "eager_input_streaming": True,
-            })
+            self.tools.append(_tool(f"{name}{SEP}{tool.name}"[:64], (tool.description or tool.title or tool.name)[:1024],
+                                    {}, []))
+            self.tools[-1]["function"]["parameters"] = tool.input_schema or {"type": "object", "properties": {}}
         log.info("MCP server %s: %d tools", name, len(result.tools))
 
     def owns(self, tool_name: str) -> bool:
-        return any(t["name"] == tool_name for t in self.tools)
+        return any(t["function"]["name"] == tool_name for t in self.tools)
 
     def schema(self, tool_name: str) -> dict:
-        return next(t["input_schema"] for t in self.tools if t["name"] == tool_name)
+        return next(t["function"]["parameters"] for t in self.tools if t["function"]["name"] == tool_name)
 
-    def call(self, tool_name: str, arguments: dict):
-        """Returns (content_blocks, is_error) in Claude tool_result format."""
+    def call(self, tool_name: str, arguments: dict) -> str:
         server, _, tool = tool_name.partition(SEP)
         future = asyncio.run_coroutine_threadsafe(self.sessions[server].call_tool(tool, arguments), self.loop)
         result = future.result(600)
-        blocks = []
+        parts = []
         for item in getattr(result, "content", None) or []:
             if item.type == "text":
-                blocks.append({"type": "text", "text": item.text})
+                parts.append(item.text)
             elif item.type == "image":
-                blocks.append({"type": "image", "source": {"type": "base64", "media_type": item.mime_type, "data": item.data}})
+                parts.append("[an image was returned, which this model cannot see]")
             else:
-                blocks.append({"type": "text", "text": item.model_dump_json(exclude_none=True)})
-        if not blocks:
-            structured = getattr(result, "structured_content", None)
-            blocks.append({"type": "text", "text": str(structured) if structured else "(no output)"})
-        return blocks, bool(getattr(result, "is_error", False))
+                parts.append(item.model_dump_json(exclude_none=True))
+        text = "\n".join(parts) or str(getattr(result, "structured_content", None) or "(no output)")
+        return ("ERROR: " + text) if getattr(result, "is_error", False) else text
 
     def close(self):
         if self._shutdown and self._main_future:
@@ -454,41 +569,19 @@ class MCPBridge:
 
 # ---------------------------------------------------------------- the agent
 
-BASE_PROMPT = """You are Desk Agent, an assistant running on the user's own {os} laptop.
+BASE_PROMPT = """You are Desk Agent, a helpful assistant running entirely on the user's own Windows laptop. Nothing they say leaves the laptop.
 Today is {today}.
 
-You can see and control the screen with the computer tools, search the web, and use any MCP tools listed.
-{coding}Prefer an MCP or coding tool over clicking through an app when one can do the job; it is faster and more reliable.
-Take a screenshot before acting on the screen, and again after anything that changes it, so you work from what is actually there.
-Ask the user before anything that spends money, sends a message on their behalf, deletes files, or changes account or security settings.
-If a tool result says the user declined an action, stop and ask what they want instead of trying another route.
-Keep replies short and plain. When the job is done, say what you did in a sentence or two."""
+{tools}
+Use a tool whenever it helps, one step at a time, and look at each result before the next step.
+Ask before deleting files or anything else that can't be undone.
+If a tool result says the user declined, stop and ask what they want instead.
+Keep replies short and plain. When a job is done, say what you did in a sentence or two."""
 
-CODING_PROMPT = """You can write and run code in the projects folder ({workspace}) with list_files, read_file, write_file and run_command.
-When asked to make a program, put each one in its own subfolder, write the files, run them to check they work, fix what breaks, and tell the user where to find it and how to start it.
-"""
-
-ROUTER_PROMPT = """Pick the Claude model for the job below. Choose the cheapest model that will do it well.
-
-claude-haiku-5-5: chat, quick questions, simple lookups, one or two step jobs.
-claude-sonnet-5-5: everyday jobs, writing, research, small programs, screen tasks with a few steps.
-claude-opus-5-5: long screen tasks across several apps, real programs with several files, debugging, careful reasoning.
-claude-fable-5-1: only for the hardest jobs, such as large or tricky software projects or long research where mistakes are costly.
-
-Effort: low for trivial jobs, medium for most, high for hard ones.
-{memory}
-The job:
-{task}"""
-
-ROUTER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "model": {"type": "string", "enum": list(MODELS)},
-        "effort": {"type": "string", "enum": ["low", "medium", "high"]},
-        "reason": {"type": "string"},
-    },
-    "required": ["model", "effort", "reason"],
-    "additionalProperties": False,
+TOOL_PROMPTS = {
+    "coding_tools": "You can write and run code in the projects folder ({workspace}). For a new program, make a subfolder, write the files, run them to check they work, fix what breaks, then tell the user where it is and how to start it.",
+    "desktop_tools": "You can open apps, files and web addresses, switch between windows, type, and press keys. You cannot see the screen, so use list_windows to check what is open, and focus_window before typing.",
+    "web_tools": "You can search the web and read web pages. Say where information came from.",
 }
 
 LEARN_PROMPT = """You keep a short memory file about one user of a desktop assistant, so it gets more useful over time.
@@ -503,21 +596,9 @@ A conversation that just finished:
 {transcript}
 </conversation>
 
-Rewrite the memory to include anything new and lasting worth knowing next time: who they are, their work, preferences, apps and files they use, how they like things done, jobs they repeat and what worked or failed when doing them.
-Leave out one off details, anything secret such as passwords or card numbers, and anything that only came from a web page rather than the user.
-Keep it as short bullet points under headings, under 600 words. If nothing new was learned, return the memory unchanged."""
-
-
-def _jsonable(block):
-    if hasattr(block, "model_dump"):
-        block = block.model_dump(exclude_none=True)
-    if isinstance(block, dict):
-        if block.get("type") == "image":
-            return {"type": "text", "text": "[image]"}
-        return {k: _jsonable(v) if isinstance(v, (dict, list)) or hasattr(v, "model_dump") else v for k, v in block.items()}
-    if isinstance(block, list):
-        return [_jsonable(b) for b in block]
-    return block
+Rewrite the memory to include anything new and lasting worth knowing next time: who they are, their work, preferences, apps and files they use, how they like things done, and jobs they repeat.
+Leave out one off details, and anything secret such as passwords or card numbers.
+Reply with only the new memory as short bullet points, under 300 words. If nothing new was learned, reply with the memory unchanged."""
 
 
 class Agent:
@@ -525,324 +606,175 @@ class Agent:
 
     def __init__(self, cfg: dict, ui, errlog):
         self.cfg = cfg
-        self.ui = ui  # gui callbacks: say(), progress(), tool(), confirm(), stats_changed()
-        self.client = anthropic.Anthropic(api_key=cfg["api_key"] or None, max_retries=4)
-        self.computer = Computer(cfg["screenshot_max_width"]) if cfg["computer_use"] else None
+        self.ui = ui  # gui callbacks: stream(), say(), progress(), tool(), confirm(), stats_changed()
+        self.engine = Engine(cfg, open(app_dir() / "engine.log", "a", encoding="utf-8", buffering=1))
         self.workspace = Workspace(cfg["workspace"]) if cfg["coding_tools"] else None
         self.mcp = MCPBridge(cfg.get("mcpServers", {}), errlog)
         self.stop_event = threading.Event()
-        self.stats_lock = threading.Lock()
         self.reset()
 
     def start(self):
         self.mcp.start()
-        self.tools = self._tools()
         return self.mcp.tools, self.mcp.failed
 
     def close(self):
+        self.engine.stop()
         self.mcp.close()
 
     def reset(self):
-        # The system prompt and tools stay fixed for a whole conversation: changing them
-        # part way through would throw away the model's earlier reasoning.
         self.messages: list = []
         self.started = datetime.now()
-        coding = CODING_PROMPT.format(workspace=self.cfg["workspace"]) if self.cfg["coding_tools"] else ""
-        system = BASE_PROMPT.format(os=f"{platform.system()} {platform.release()}", today=date.today().isoformat(), coding=coding)
+
+    def system_prompt(self) -> str:
+        parts = [TOOL_PROMPTS[k].format(workspace=self.cfg["workspace"]) for k in TOOL_PROMPTS if self.cfg[k]]
+        if self.mcp.tools:
+            parts.append("You also have extra tools from MCP servers; their names start with the server name.")
+        prompt = BASE_PROMPT.format(today=date.today().strftime("%A %d %B %Y"), tools="\n".join(parts) + "\n" if parts else "")
         memory = read_memory() if self.cfg["learn"] else ""
         if memory:
-            system += f"\n\nWhat you have learned about this user from earlier conversations:\n<memory>\n{memory}\n</memory>"
-        self.system = system
+            prompt += f"\n\nWhat you have learned about this user from earlier conversations:\n{memory}"
+        return prompt
 
-    def _tools(self) -> list:
+    def tools(self) -> list:
         tools = []
-        if self.computer:
-            tools.append({"type": "computer_toolset_20260801"})
-        if self.cfg["web_search"]:
-            # The basic web search version works on every model, so switching models
-            # part way through a chat keeps the same tool list.
-            tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
-        if self.workspace:
-            tools.extend(CODING_TOOLS)
-        tools.extend(self.mcp.tools)
-        return tools
-
-    # model choice
+        if self.cfg["coding_tools"]:
+            tools += CODING_TOOLS
+        if self.cfg["desktop_tools"]:
+            tools += DESKTOP_TOOLS
+        if self.cfg["web_tools"]:
+            tools += WEB_TOOLS
+        return tools + self.mcp.tools
 
     def choose(self, text: str):
-        """Returns (model, effort, reason)."""
+        """Returns (model_key, reason or None)."""
+        ready = installed_models(self.cfg)
+        if not ready:
+            raise RuntimeError("No AI model is downloaded yet. Press Models to get one.")
         if self.cfg["model"] != AUTO:
-            return self.cfg["model"], self.cfg["effort"], None
-        memory = read_memory() if self.cfg["learn"] else ""
-        memory = f"\nWhat is known about this user:\n{memory}\n" if memory else ""
-        recent = [m["content"] for m in self.messages[-6:] if m["role"] == "user" and isinstance(m["content"], str)]
-        task = "\n".join(recent[-2:] + [text])
-        try:
-            resp = self.client.messages.create(
-                model=ROUTER_MODEL,
-                max_tokens=2000,
-                output_config={"effort": "low", "format": {"type": "json_schema", "schema": ROUTER_SCHEMA}},
-                messages=[{"role": "user", "content": ROUTER_PROMPT.format(memory=memory, task=task[-6000:])}],
-            )
-            self._count(resp)
-            pick = json.loads(next(b.text for b in resp.content if b.type == "text"))
-            return pick["model"], pick["effort"], pick["reason"]
-        except (anthropic.APIConnectionError, anthropic.APIStatusError, StopIteration, ValueError, KeyError):
-            log.exception("router failed")
-            return "claude-opus-5-5", "medium", "Auto could not decide, so using Opus"
-
-    def _request(self, model, effort):
-        info = MODELS.get(model, MODELS["claude-opus-5-5"])
-        kwargs = {}
-        betas = []
-        if info["fallbacks"]:
-            kwargs["fallbacks"] = "default"
-            betas.append("server-side-fallback-2026-07-01")
-        if info["updates"]:
-            thinking = {"type": "adaptive", "display": "updates"}
-            betas.append("thinking-display-updates-2026-08-18")
-        else:
-            thinking = {"type": "adaptive", "display": "summarized"}
-        # Python raises ValueError when a streamed tool input is not valid JSON. Retry a
-        # couple of times; API errors (auth, rate limit) are left to propagate.
-        for attempt in range(3):
-            try:
-                with self.client.beta.messages.stream(
-                    model=model,
-                    max_tokens=64000,
-                    system=self.system,
-                    tools=self.tools,
-                    messages=self.messages,
-                    thinking=thinking,
-                    output_config={"effort": effort},
-                    cache_control={"type": "ephemeral"},
-                    betas=betas,
-                    **kwargs,
-                ) as stream:
-                    return stream.get_final_message()
-            except ValueError:
-                if attempt == 2:
-                    raise
-                log.warning("Unparseable tool input, retrying")
-
-    # running a job
+            if self.cfg["model"] in ready:
+                return self.cfg["model"], None
+            return next(iter(ready)), f"{self.cfg['model']} isn't downloaded, so using {ready[next(iter(ready))]}"
+        if CODE_WORDS.search(text) and "coder" in ready:
+            return "coder", "it looks like a coding job"
+        if len(text.split()) < 12 and not ACTION_WORDS.search(text) and "quick" in ready and not self.messages:
+            return "quick", "it's a short question"
+        if "general" in ready:
+            return "general", "it's a general job"
+        key = next(iter(ready))
+        return key, "it's the only model downloaded"
 
     def run(self, text: str):
         self.stop_event.clear()
-        model, effort, reason = self.choose(text)
-        if reason:
-            self.ui.progress(f"Auto picked {MODELS[model]['label'].split(' (')[0]} at {effort} effort: {reason}")
-        if self.messages and self.messages[-1]["role"] == "user":
-            # The last turn ended without a reply (refusal or error), so add to that user message.
-            last = self.messages[-1]
-            if isinstance(last["content"], str):
-                last["content"] = [{"type": "text", "text": last["content"]}]
-            last["content"].append({"type": "text", "text": text})
-        else:
-            self.messages.append({"role": "user", "content": text})
+        key = None
         try:
-            self._loop(model, effort)
+            key, reason = self.choose(text)
+            if reason:
+                self.ui.progress(f"Auto picked {installed_models(self.cfg).get(key, key)} because {reason}.")
+            self.engine.load(key, status=self.ui.progress)
+            self.messages.append({"role": "user", "content": text})
+            self._loop()
         except pyautogui.FailSafeException:
-            self._abandon_pending()
             self.ui.say("Stopped: the mouse hit a screen corner (emergency stop).", kind="error")
-        except anthropic.AuthenticationError:
-            self.ui.say("Your API key was rejected. Check it in Settings.", kind="error")
-        except anthropic.APIError as e:
-            self._abandon_pending()
-            self.ui.say(f"API error: {e}", kind="error")
+        except (OSError, RuntimeError, ValueError) as e:
+            log.exception("job failed")
+            self.ui.say(str(e), kind="error")
         finally:
-            self._finish_job(model)
+            if key:
+                self._finish_job(key)
 
-    def _abandon_pending(self):
-        # A tool_use with no tool_result would make every later request fail, so answer it.
-        if self.messages and self.messages[-1]["role"] == "assistant":
-            pending = [b for b in self.messages[-1]["content"] if b.type == "tool_use"]
-            if pending:
-                self.messages.append({"role": "user", "content": [self._error(b, "Stopped by the user.") for b in pending]})
-
-    def _loop(self, model, effort):
+    def _loop(self):
+        tools = self.tools()
         for _ in range(self.cfg["max_steps"]):
             if self.stop_event.is_set():
                 self.ui.say("Stopped.", kind="error")
                 return
-
-            resp = self._request(model, effort)
-            self._count(resp)
-            self.messages.append({"role": "assistant", "content": resp.content})
-
-            for block in resp.content:
-                if block.type == "text" and block.text.strip():
-                    self.ui.say(block.text)
-                elif block.type == "thinking" and block.thinking.strip():
-                    self.ui.progress(block.thinking)
-                elif block.type == "server_tool_use":
-                    self.ui.tool(f"web search: {block.input.get('query', '')}")
-
-            if resp.stop_reason == "refusal":
-                self.messages.pop()
-                self.ui.say("Claude declined this request.", kind="error")
-                return
-            if resp.stop_reason == "pause_turn":
-                continue
-
-            calls = [b for b in resp.content if b.type == "tool_use"]
+            convo = [{"role": "system", "content": self.system_prompt()}] + self.messages
+            self.ui.start_reply()
+            message, finish = self.engine.chat(convo, tools=tools, on_text=self.ui.stream, stop_event=self.stop_event)
+            self.ui.end_reply()
+            self.messages.append(message)
+            self._count(message)
+            calls = message.get("tool_calls") or []
             if not calls:
+                if finish == "length":
+                    self.ui.say("The reply was cut off. Say 'continue' for the rest.", kind="error")
                 return
-
-            if resp.stop_reason == "max_tokens":
-                results = [self._error(b, "Output was cut off before this call finished. Try again in smaller pieces.") for b in calls]
-            else:
-                results = self._run_tools(calls)
-            self.messages.append({"role": "user", "content": results})
-
+            for call in calls:
+                self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": self._run_tool(call)})
         self.ui.say(f"Stopped after {self.cfg['max_steps']} steps. Say 'continue' to keep going.", kind="error")
 
-    def _run_tools(self, calls):
-        results = []
-        computer_failed = False
-        for call in calls:
-            if self.stop_event.is_set():
-                results.append(self._error(call, "Stopped by the user."))
-                continue
-            if call.toolset_name == "computer":
-                if computer_failed:
-                    results.append(self._error(call, "Not executed: an earlier computer action in this turn failed."))
-                    continue
-                result = self._computer(call)
-                computer_failed = result.get("is_error", False)
-                results.append(result)
-            elif call.name in CODING_TOOL_NAMES and self.workspace:
-                results.append(self._coding(call))
-            elif self.mcp.owns(call.name):
-                results.append(self._mcp(call))
-            else:
-                results.append(self._error(call, f"Unknown tool {call.name}"))
-        return results
-
-    def _describe(self, call) -> str:
-        return f"{call.name} {json.dumps(call.input)[:300]}"
-
-    def _needs_confirm(self, call) -> bool:
-        if not self.cfg["confirm_actions"]:
-            return False
-        harmless = {"screenshot", "zoom", "cursor_position", "wait", "mouse_move", "scroll", "list_files", "read_file"}
-        return call.name not in harmless
-
-    def _computer(self, call):
-        self.ui.tool(self._describe(call))
-        if self._needs_confirm(call) and not self.ui.confirm(self._describe(call)):
-            return self._error(call, "The user declined this action.")
+    def _run_tool(self, call) -> str:
+        name = call["function"]["name"]
+        raw = call["function"]["arguments"]
+        if self.stop_event.is_set():
+            return "Stopped by the user."
         try:
-            kind, data = self.computer.run(call.name, call.input)
+            args = json.loads(raw) if raw.strip() else {}
+        except json.JSONDecodeError:
+            return f"ERROR: the arguments were not valid JSON: {raw[:500]}"
+        description = f"{name} {json.dumps(args)[:300]}"
+        self.ui.tool(description)
+
+        if name in LOCAL_TOOLS:
+            schema = LOCAL_TOOLS[name]["function"]["parameters"]
+        elif self.mcp.owns(name):
+            schema = self.mcp.schema(name)
+        else:
+            return f"ERROR: there is no tool called {name}."
+        try:
+            jsonschema.validate(args, schema)
+        except jsonschema.ValidationError as e:
+            return f"ERROR: bad arguments: {e.message}"
+
+        if self.cfg["confirm_actions"] and name not in HARMLESS and not self.ui.confirm(description):
+            return "The user declined this action."
+        try:
+            result = self.mcp.call(name, args) if self.mcp.owns(name) else run_local_tool(name, args, self.workspace)
         except pyautogui.FailSafeException:
             raise
         except Exception as e:
-            log.exception("computer action failed")
-            return self._error(call, f"{type(e).__name__}: {e}")
-        if kind == "image":
-            content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}]
-        else:
-            content = [{"type": "text", "text": data}]
-        return {"type": "tool_result", "tool_use_id": call.id, "toolset_name": "computer", "content": content}
-
-    def _validated(self, call, schema):
-        try:
-            jsonschema.validate(call.input, schema)
-        except jsonschema.ValidationError as e:
-            return self._error(call, json.dumps({"INVALID_JSON": json.dumps(call.input), "problem": e.message}))
-        return None
-
-    def _coding(self, call):
-        self.ui.tool(self._describe(call))
-        schema = next(t["input_schema"] for t in CODING_TOOLS if t["name"] == call.name)
-        if bad := self._validated(call, schema):
-            return bad
-        if self._needs_confirm(call) and not self.ui.confirm(self._describe(call)):
-            return self._error(call, "The user declined this action.")
-        try:
-            return {"type": "tool_result", "tool_use_id": call.id, "content": self.workspace.run(call.name, call.input)}
-        except Exception as e:
-            return self._error(call, f"{type(e).__name__}: {e}")
-
-    def _mcp(self, call):
-        self.ui.tool(self._describe(call))
-        if bad := self._validated(call, self.mcp.schema(call.name)):
-            return bad
-        if self._needs_confirm(call) and not self.ui.confirm(self._describe(call)):
-            return self._error(call, "The user declined this action.")
-        try:
-            content, is_error = self.mcp.call(call.name, call.input)
-        except Exception as e:
-            log.exception("MCP call failed")
-            return self._error(call, f"{type(e).__name__}: {e}")
-        return {"type": "tool_result", "tool_use_id": call.id, "content": content, "is_error": is_error}
-
-    @staticmethod
-    def _error(call, message):
-        result = {"type": "tool_result", "tool_use_id": call.id, "is_error": True, "content": message}
-        if getattr(call, "toolset_name", None):
-            result["toolset_name"] = call.toolset_name
+            log.exception("tool %s failed", name)
+            result = f"ERROR: {type(e).__name__}: {e}"
+        # Small models have small memories, so keep tool output short.
+        if len(result) > 6000:
+            result = result[:4000] + "\n...(cut)...\n" + result[-1500:]
         return result
 
     # learning from use
 
-    def _count(self, resp):
-        u = resp.usage
-        price_in, price_out = MODELS.get(resp.model, MODELS["claude-opus-5-5"])["price"]
-        cost = (
-            (u.input_tokens or 0) * price_in
-            + (getattr(u, "cache_read_input_tokens", 0) or 0) * price_in * 0.1
-            + (getattr(u, "cache_creation_input_tokens", 0) or 0) * price_in * 1.25
-            + (u.output_tokens or 0) * price_out
-        ) / 1_000_000
-        with self.stats_lock:
-            stats = load_stats()
-            stats["spend_usd"] = round(stats.get("spend_usd", 0) + cost, 4)
-            with stats_path().open("w", encoding="utf-8") as f:
-                json.dump(stats, f, indent=2)
-        self.ui.stats_changed()
+    def _count(self, message):
+        stats = load_stats()
+        stats["words_written"] = stats.get("words_written", 0) + len((message.get("content") or "").split())
+        save_stats(stats)
 
-    def _finish_job(self, model):
-        with self.stats_lock:
-            stats = load_stats()
-            stats["jobs"] = stats.get("jobs", 0) + 1
-            stats.setdefault("models", {})[model] = stats["models"].get(model, 0) + 1
-            stats["last_used"] = datetime.now().isoformat(timespec="seconds")
-            with stats_path().open("w", encoding="utf-8") as f:
-                json.dump(stats, f, indent=2)
+    def _finish_job(self, key):
+        stats = load_stats()
+        stats["jobs"] = stats.get("jobs", 0) + 1
+        stats.setdefault("models", {})[key] = stats["models"].get(key, 0) + 1
+        stats["last_used"] = datetime.now().isoformat(timespec="seconds")
+        save_stats(stats)
         self.ui.stats_changed()
 
         history = app_dir() / "history"
         history.mkdir(exist_ok=True)
         with (history / f"{self.started:%Y-%m-%d_%H%M%S}.json").open("w", encoding="utf-8") as f:
-            json.dump(_jsonable(self.messages), f, indent=1)
+            json.dump(self.messages, f, indent=1)
 
-        if self.cfg["learn"] and self.messages:
+        if self.cfg["learn"] and self.messages and not self.stop_event.is_set():
             threading.Thread(target=self._learn, args=(list(self.messages),), daemon=True).start()
 
     def _learn(self, messages):
         lines = []
         for m in messages:
-            content = m["content"] if isinstance(m["content"], list) else [{"type": "text", "text": m["content"]}]
-            for b in content:
-                b = _jsonable(b)
-                if b.get("type") == "text" and b.get("text") and b["text"] != "[image]":
-                    lines.append(f"{'User' if m['role'] == 'user' else 'Assistant'}: {b['text']}")
-                elif b.get("type") == "tool_use":
-                    lines.append(f"(used {b.get('name')})")
-        transcript = "\n".join(lines)[-40_000:]
+            if m["role"] in ("user", "assistant") and m.get("content"):
+                lines.append(f"{m['role'].title()}: {m['content']}")
+            for c in m.get("tool_calls") or []:
+                lines.append(f"(used {c['function']['name']})")
+        prompt = LEARN_PROMPT.format(memory=read_memory() or "(empty)", transcript="\n".join(lines)[-12000:])
         try:
-            resp = self.client.messages.create(
-                model=ROUTER_MODEL,
-                max_tokens=8000,
-                output_config={"effort": "low"},
-                messages=[{"role": "user", "content": LEARN_PROMPT.format(memory=read_memory() or "(empty)", transcript=transcript)}],
-            )
-            self._count(resp)
-            if resp.stop_reason != "end_turn":
-                return
-            text = next((b.text for b in resp.content if b.type == "text"), "").strip()
-            if text:
+            message, finish = self.engine.chat([{"role": "user", "content": prompt}], max_tokens=800)
+            text = (message.get("content") or "").strip()
+            if finish == "stop" and text:
                 memory_path().write_text(text + "\n", encoding="utf-8")
         except Exception:
             log.exception("learning failed")
@@ -869,26 +801,23 @@ class App:
         self.root.protocol("WM_DELETE_WINDOW", self.quit)
         self._build()
         self._show_stats()
+        self._fill_model_box()
         self.root.after(50, self._drain)
-
-        if not self.cfg["api_key"] and not os.environ.get("ANTHROPIC_API_KEY"):
-            self.root.after(200, self.open_settings)
-        else:
-            self._start_agent()
+        self._start_agent()
+        if not installed_models(self.cfg):
+            self.root.after(300, self.open_models)
 
     def _build(self):
         top = ttk.Frame(self.root, padding=(8, 6))
         top.pack(fill="x")
         ttk.Label(top, text="Model").pack(side="left")
-        self.model_names = {AUTO_LABEL: AUTO, **{m["label"]: k for k, m in MODELS.items()}}
-        self.model_box = ttk.Combobox(top, values=list(self.model_names), state="readonly", width=38)
-        current = self.cfg["model"]
-        self.model_box.set(AUTO_LABEL if current == AUTO else MODELS.get(current, MODELS["claude-opus-5-5"])["label"])
+        self.model_box = ttk.Combobox(top, state="readonly", width=36)
         self.model_box.bind("<<ComboboxSelected>>", self._model_changed)
         self.model_box.pack(side="left", padx=6)
         ttk.Button(top, text="Settings", command=self.open_settings).pack(side="right")
-        ttk.Button(top, text="Memory", command=lambda: open_file(self._ensure_memory())).pack(side="right", padx=4)
-        ttk.Button(top, text="New chat", command=self.new_chat).pack(side="right")
+        ttk.Button(top, text="Models", command=self.open_models).pack(side="right", padx=4)
+        ttk.Button(top, text="Memory", command=lambda: open_file(self._ensure_memory())).pack(side="right")
+        ttk.Button(top, text="New chat", command=self.new_chat).pack(side="right", padx=4)
 
         info = ttk.Frame(self.root, padding=(8, 0, 8, 4))
         info.pack(fill="x")
@@ -900,7 +829,7 @@ class App:
         self.log = scrolledtext.ScrolledText(self.root, wrap="word", state="disabled", font=("Segoe UI", 10), padx=8, pady=8)
         self.log.pack(fill="both", expand=True, padx=8)
         self.log.tag_config("you", foreground="#1a4fa0", font=("Segoe UI", 10, "bold"))
-        self.log.tag_config("claude", foreground="#202020")
+        self.log.tag_config("ai", foreground="#202020")
         self.log.tag_config("progress", foreground="#707070", font=("Segoe UI", 9, "italic"))
         self.log.tag_config("tool", foreground="#8a6d00", font=("Consolas", 9))
         self.log.tag_config("error", foreground="#b00020")
@@ -917,9 +846,9 @@ class App:
         self.stop_btn = ttk.Button(buttons, text="Stop", command=self.stop, state="disabled")
         self.stop_btn.pack(fill="x", pady=(4, 0))
 
-        self._write("Type a job below, for example \"Open Notepad and write a shopping list\" "
-                    "or \"Make me a Python program that renames my holiday photos by date\".\n"
-                    "Emergency stop: shove the mouse into any corner of the screen.\n\n", "progress")
+        self._write("Your own AI, running on this laptop. Nothing you type leaves it.\n"
+                    "Try \"Make me a Python program that renames my holiday photos by date\" or \"Open Notepad and write a shopping list\".\n\n",
+                    "progress")
 
     def _write(self, text, tag):
         self.log.configure(state="normal")
@@ -935,14 +864,18 @@ class App:
 
     def _show_stats(self):
         s = load_stats()
-        since = s.get("first_used", date.today().isoformat())
-        self.stats_label.config(text=f"{s.get('jobs', 0)} jobs since {since}  |  about ${s.get('spend_usd', 0):.2f} spent")
+        self.stats_label.config(text=f"{s.get('jobs', 0)} jobs since {s.get('first_used', date.today().isoformat())}"
+                                     f"  |  {s.get('words_written', 0):,} words written")
+
+    def _fill_model_box(self):
+        self.model_names = {AUTO_LABEL: AUTO, **{label: k for k, label in installed_models(self.cfg).items()}}
+        self.model_box.config(values=list(self.model_names))
+        current = next((label for label, k in self.model_names.items() if k == self.cfg["model"]), AUTO_LABEL)
+        self.model_box.set(current)
 
     def _model_changed(self, _event=None):
         self.cfg["model"] = self.model_names[self.model_box.get()]
         save_config(self.cfg)
-        if self.agent:
-            self.agent.cfg["model"] = self.cfg["model"]
 
     # agent lifecycle
 
@@ -950,7 +883,7 @@ class App:
         if self.agent:
             old, self.agent = self.agent, None
             threading.Thread(target=old.close, daemon=True).start()
-        self.status.config(text="Connecting to MCP servers...")
+        self.status.config(text="Starting...")
         agent = Agent(self.cfg, self, self.errlog)
 
         def work():
@@ -972,9 +905,6 @@ class App:
         self.entry.delete("1.0", "end")
         self._write(f"You: {text}\n\n", "you")
         self._set_busy(True)
-        if self.cfg["computer_use"]:
-            # Get out of the way so Claude sees the desktop, not this window.
-            self.root.iconify()
 
         def work():
             try:
@@ -989,7 +919,7 @@ class App:
     def stop(self):
         if self.agent:
             self.agent.stop_event.set()
-            self.status.config(text="Stopping after the current step...")
+            self.status.config(text="Stopping...")
 
     def new_chat(self):
         if self.busy or not self.agent:
@@ -1003,11 +933,20 @@ class App:
         self.busy = busy
         self.send_btn.config(state="disabled" if busy else "normal")
         self.stop_btn.config(state="normal" if busy else "disabled")
-        self.status.config(text="Working..." if busy else self.ready_text)
+        self.status.config(text="Thinking..." if busy else self.ready_text)
 
     # callbacks from the worker thread
 
-    def say(self, text, kind="claude"):
+    def start_reply(self):
+        self.events.put(("say", ("", "ai")))
+
+    def stream(self, text):
+        self.events.put(("say", (text, "ai")))
+
+    def end_reply(self):
+        self.events.put(("say", ("\n\n", "ai")))
+
+    def say(self, text, kind="ai"):
         self.events.put(("say", (text.strip() + "\n\n", kind)))
 
     def progress(self, text):
@@ -1036,12 +975,14 @@ class App:
                     self._show_stats()
                 elif kind == "ready":
                     count, failed = data
-                    self.ready_text = f"Ready  |  {count} MCP tools"
+                    self.ready_text = "Ready" + (f"  |  {count} MCP tools" if count else "")
                     if failed:
                         self.ready_text += f"  |  failed: {', '.join(failed)}"
                         self._write("Some MCP servers did not start:\n"
                                     + "".join(f"  {k}: {v}\n" for k, v in failed.items())
                                     + f"Details in {app_dir() / 'mcp_servers.log'}\n\n", "error")
+                    if not find_llama_server():
+                        self._write("The AI engine (llama-server) is missing. Reinstall Desk Agent.\n\n", "error")
                     if not self.busy:
                         self.status.config(text=self.ready_text)
                 elif kind == "confirm":
@@ -1050,8 +991,8 @@ class App:
                     done.set()
                 elif kind == "done":
                     self._set_busy(False)
-                    self.root.deiconify()
-                    self.root.lift()
+                elif kind == "call":
+                    data()
         except queue.Empty:
             pass
         self.root.after(50, self._drain)
@@ -1062,7 +1003,7 @@ class App:
         win.attributes("-topmost", True)
         win.resizable(False, False)
         result = {"ok": False}
-        ttk.Label(win, text="Claude wants to:", padding=(12, 12, 12, 4)).pack(anchor="w")
+        ttk.Label(win, text="The AI wants to:", padding=(12, 12, 12, 4)).pack(anchor="w")
         ttk.Label(win, text=description, wraplength=420, padding=(12, 0, 12, 12), font=("Consolas", 9)).pack(anchor="w")
         row = ttk.Frame(win, padding=12)
         row.pack(fill="x")
@@ -1080,13 +1021,78 @@ class App:
         ttk.Button(row, text="Deny", command=lambda: close(False)).pack(side="right")
         win.protocol("WM_DELETE_WINDOW", lambda: close(False))
         win.update_idletasks()
-        x = (win.winfo_screenwidth() - win.winfo_width()) // 2
-        y = (win.winfo_screenheight() - win.winfo_height()) // 3
-        win.geometry(f"+{x}+{y}")
+        win.geometry(f"+{(win.winfo_screenwidth() - win.winfo_width()) // 2}+{(win.winfo_screenheight() - win.winfo_height()) // 3}")
         win.grab_set()
         win.focus_force()
         self.root.wait_window(win)
         return result["ok"]
+
+    # models
+
+    def open_models(self):
+        win = tk.Toplevel(self.root)
+        win.title("Models")
+        win.transient(self.root)
+        frm = ttk.Frame(win, padding=14)
+        frm.pack(fill="both", expand=True)
+        ttk.Label(frm, text="Models are downloaded once and then work offline. Start with General.",
+                  wraplength=460).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+        def refresh():
+            win.destroy()
+            self._fill_model_box()
+            self.open_models()
+
+        for i, (key, entry) in enumerate(CATALOG.items(), start=1):
+            path = model_file(key, self.cfg)
+            box = ttk.LabelFrame(frm, text=entry["label"], padding=8)
+            box.grid(row=i, column=0, columnspan=3, sticky="we", pady=4)
+            ttk.Label(box, text=f"{entry['about']}  ({entry['size_gb']} GB)", wraplength=440).pack(anchor="w")
+            row = ttk.Frame(box)
+            row.pack(fill="x", pady=(6, 0))
+            if path:
+                ttk.Label(row, text="Downloaded", foreground="#2e7d32").pack(side="left")
+                ttk.Button(row, text="Delete", command=lambda p=path: (p.unlink(), refresh())).pack(side="right")
+            else:
+                bar = ttk.Progressbar(row, length=260, maximum=1000)
+                bar.pack(side="left")
+                label = ttk.Label(row, text="")
+                label.pack(side="left", padx=6)
+                button = ttk.Button(row, text="Download")
+                button.pack(side="right")
+                button.config(command=lambda k=key, b=bar, lab=label, btn=button: self._download(k, b, lab, btn, refresh))
+
+        row = len(CATALOG) + 1
+        ttk.Button(frm, text="Add my own .gguf file...", command=lambda: self._add_custom(refresh)).grid(row=row, column=0, sticky="w", pady=(10, 0))
+        ttk.Button(frm, text="Open models folder", command=lambda: open_file(models_dir())).grid(row=row, column=1, sticky="w", pady=(10, 0), padx=6)
+
+    def _download(self, key, bar, label, button, refresh):
+        button.config(state="disabled")
+        cancel = threading.Event()
+
+        def progress(done, total):
+            self.events.put(("call", lambda: (bar.config(value=1000 * done / total if total else 0),
+                                              label.config(text=f"{done / 1e9:.2f} of {total / 1e9:.2f} GB"))))
+
+        def work():
+            try:
+                download_model(key, progress, cancel)
+                self.events.put(("call", refresh))
+            except Exception as e:
+                log.exception("download failed")
+                error = str(e)
+                self.events.put(("call", lambda: (label.config(text="Failed, try again"), button.config(state="normal"),
+                                                  messagebox.showerror("Download failed", error))))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _add_custom(self, refresh):
+        path = filedialog.askopenfilename(title="Pick a .gguf model file", filetypes=[("GGUF models", "*.gguf")])
+        if path:
+            name = Path(path).stem[:40]
+            self.cfg.setdefault("custom_models", {})[name] = path
+            save_config(self.cfg)
+            refresh()
 
     # settings
 
@@ -1099,34 +1105,32 @@ class App:
         frm = ttk.Frame(win, padding=14)
         frm.pack(fill="both", expand=True)
 
-        key = tk.StringVar(value=self.cfg["api_key"])
-        effort = tk.StringVar(value=self.cfg["effort"])
         workspace = tk.StringVar(value=self.cfg["workspace"])
+        context = tk.StringVar(value=str(self.cfg["context"]))
         checks = {
-            "computer_use": ("Let Claude control the mouse and keyboard", tk.BooleanVar(value=self.cfg["computer_use"])),
-            "confirm_actions": ("Ask me before each click, keypress, command or MCP call", tk.BooleanVar(value=self.cfg["confirm_actions"])),
-            "coding_tools": ("Let Claude write and run code in the projects folder", tk.BooleanVar(value=self.cfg["coding_tools"])),
-            "web_search": ("Allow web search", tk.BooleanVar(value=self.cfg["web_search"])),
+            "coding_tools": ("Let the AI write and run code in the projects folder", tk.BooleanVar(value=self.cfg["coding_tools"])),
+            "desktop_tools": ("Let the AI open apps and type into windows", tk.BooleanVar(value=self.cfg["desktop_tools"])),
+            "web_tools": ("Let the AI search the web and read pages (needs internet)", tk.BooleanVar(value=self.cfg["web_tools"])),
+            "confirm_actions": ("Ask me before it runs commands, types, opens things or changes files", tk.BooleanVar(value=self.cfg["confirm_actions"])),
             "learn": ("Learn from my conversations (keeps a memory file you can edit)", tk.BooleanVar(value=self.cfg["learn"])),
         }
 
-        ttk.Label(frm, text="Anthropic API key (console.anthropic.com)").grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Entry(frm, textvariable=key, show="*", width=56).grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 10))
-        ttk.Label(frm, text="Effort when you pick a model yourself").grid(row=2, column=0, sticky="w")
-        ttk.Combobox(frm, textvariable=effort, values=EFFORTS, state="readonly", width=12).grid(row=2, column=1, sticky="w")
-        ttk.Label(frm, text="Projects folder").grid(row=3, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(frm, textvariable=workspace, width=56).grid(row=4, column=0, columnspan=2, sticky="we")
+        ttk.Label(frm, text="Projects folder").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=workspace, width=56).grid(row=1, column=0, columnspan=2, sticky="we")
+        ttk.Label(frm, text="Memory size in tokens (bigger remembers more of a chat, uses more RAM)").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Combobox(frm, textvariable=context, values=["4096", "8192", "16384", "32768"], width=10).grid(row=3, column=0, sticky="w")
         for i, (label, var) in enumerate(checks.values()):
-            ttk.Checkbutton(frm, text=label, variable=var).grid(row=5 + i, column=0, columnspan=2, sticky="w", pady=(10 if i == 0 else 0, 0))
-        row = 5 + len(checks)
-        ttk.Label(frm, text="MCP servers are set in the config file (same format as Claude Desktop). "
-                            "Saving starts a new chat.", wraplength=400).grid(row=row, column=0, columnspan=2, sticky="w", pady=(12, 2))
+            ttk.Checkbutton(frm, text=label, variable=var).grid(row=4 + i, column=0, columnspan=2, sticky="w", pady=(10 if i == 0 else 0, 0))
+        row = 4 + len(checks)
+        ttk.Label(frm, text="MCP servers are set in the config file (same format as Claude Desktop). Saving starts a new chat.",
+                  wraplength=420).grid(row=row, column=0, columnspan=2, sticky="w", pady=(12, 2))
         ttk.Button(frm, text="Open config file", command=lambda: open_file(config_path())).grid(row=row + 1, column=0, sticky="w")
 
         def save():
             self.cfg = load_config()  # pick up any hand edits to mcpServers
-            self.cfg.update(api_key=key.get().strip(), effort=effort.get(), workspace=workspace.get().strip() or DEFAULTS["workspace"],
-                            model=self.model_names[self.model_box.get()],
+            self.cfg.update(workspace=workspace.get().strip() or DEFAULTS["workspace"],
+                            context=int(context.get()) if context.get().isdigit() else 8192,
+                            model=self.model_names.get(self.model_box.get(), AUTO),
                             **{name: var.get() for name, (_, var) in checks.items()})
             save_config(self.cfg)
             win.destroy()
@@ -1138,6 +1142,7 @@ class App:
     def quit(self):
         if self.agent:
             self.agent.stop_event.set()
+            self.agent.engine.stop()
             threading.Thread(target=self.agent.close, daemon=True).start()
         self.root.after(300, self.root.destroy)
 
@@ -1152,6 +1157,7 @@ def main():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         encoding="utf-8",
     )
+    pyautogui.FAILSAFE = True  # slamming the mouse into a screen corner is the emergency stop
     # MCP servers write their own logs here; a windowed EXE has no console to show them.
     errlog = open(app_dir() / "mcp_servers.log", "a", encoding="utf-8", buffering=1)
     App(errlog).run()

@@ -28,11 +28,28 @@ jobs:
           --icon icon.ico
           --collect-data jsonschema_specifications
           deskagent.py
+      - name: Add the llama.cpp engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = gh release view --repo ggml-org/llama.cpp --json tagName --jq .tagName
+          Write-Host "Using llama.cpp $tag"
+          gh release download $tag --repo ggml-org/llama.cpp --pattern "*bin-win-cpu-x64.zip" --dir llama_zip
+          if (-not (Get-ChildItem llama_zip -ErrorAction SilentlyContinue)) {
+            gh release download $tag --repo ggml-org/llama.cpp --pattern "*bin-win-avx2-x64.zip" --dir llama_zip
+          }
+          Expand-Archive (Get-ChildItem llama_zip\*.zip | Select-Object -First 1).FullName -DestinationPath llama_tmp -Force
+          $exe = Get-ChildItem llama_tmp -Recurse -Filter llama-server.exe | Select-Object -First 1
+          if (-not $exe) { throw "llama-server.exe not found in the llama.cpp download" }
+          New-Item -ItemType Directory -Force dist\DeskAgent\llama | Out-Null
+          Copy-Item (Join-Path $exe.DirectoryName '*') dist\DeskAgent\llama -Recurse -Force
+          & dist\DeskAgent\llama\llama-server.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "llama-server.exe would not run" }
       - name: Install Inno Setup
         run: |
           if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
       - name: Build installer
-        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=1.0.${{ github.run_number }}" installer.iss'
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=2.0.${{ github.run_number }}" installer.iss'
       - uses: actions/upload-artifact@v4
         with:
           name: DeskAgent-Setup

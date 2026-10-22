@@ -1,9 +1,9 @@
 ; Inno Setup script for DeskAgent-Setup.exe.
 ; The GitHub workflow builds the app with PyInstaller first, then runs:
-;   ISCC.exe /DAppVersion=1.0.N installer.iss
+;   ISCC.exe /DAppVersion=2.0.N installer.iss
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "2.0.0"
 #endif
 
 [Setup]
@@ -36,6 +36,7 @@ Source: "dist\DeskAgent\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Source: "deskagent.py"; DestDir: "{app}\source"; Flags: ignoreversion
 Source: "requirements.txt"; DestDir: "{app}\source"; Flags: ignoreversion
 Source: "build.bat"; DestDir: "{app}\source"; Flags: ignoreversion
+Source: "icon.ico"; DestDir: "{app}\source"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
 
 [Icons]

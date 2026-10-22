@@ -1,82 +1,78 @@
 # Desk Agent
 
-A Windows app that lets Claude do jobs on your laptop. It can see the screen, move the mouse, type, search the web, write and run code, and use any MCP server you plug in. You type what you want done, it gets on with it.
+Your own AI that runs on your laptop. No account, no API key, no monthly bill, and nothing you type leaves the machine. Once a model is downloaded it works with the internet switched off.
 
-The whole app is one file, `deskagent.py`, which builds into one file, `DeskAgent.exe`.
+It can chat, write and run programs, open apps, files and websites, type into windows, search the web, and use any MCP server you plug in. You can switch between models or leave it on Auto. It keeps a memory of what it learns about you and gets more useful the more you use it.
 
-The thinking happens on Anthropic's servers, so you need an internet connection and an API key. Nothing big runs on the laptop itself, which is why it's fine on an Acer Aspire 5.
+The whole app is one file, `deskagent.py`. The AI itself runs through [llama.cpp](https://github.com/ggml-org/llama.cpp), which comes bundled in the installer.
 
 ## Installing it
 
-Download **DeskAgent-Setup.exe** and double click it. It installs Desk Agent for your user account (no admin password needed), puts an icon on your desktop and in the Start menu, and adds an uninstaller under Settings, Apps. After that you just double click the icon like any other app.
-
-The full source code is installed with it, in the `source` folder inside the install folder.
+Download **DeskAgent-Setup.exe** and double click it. It installs for your user account (no admin password needed), puts an icon on your desktop and in the Start menu, and adds an uninstaller under Settings, Apps.
 
 **Where to get the installer:** every push to `main` builds it on GitHub. Open the repo on GitHub, go to **Actions**, click the latest **Build Windows EXE** run and download **DeskAgent-Setup** at the bottom. Unzip it to get `DeskAgent-Setup.exe`.
 
-For a permanent link, go to **Releases**, **Draft a new release**, type a tag such as `v1.0.0` and publish. The installer is attached automatically and is always at the latest release.
+For a permanent link, go to **Releases**, **Draft a new release**, type a tag such as `v2.0.0` and publish. The installer is attached automatically.
 
 Windows SmartScreen will probably warn you the first time because the installer isn't signed. Click **More info** then **Run anyway**.
 
-**Building a portable EXE yourself instead:** install Python 3.12 from python.org (tick "Add python.exe to PATH"), put `deskagent.py`, `requirements.txt`, `icon.ico` and `build.bat` in one folder, then double click `build.bat`. You get a single `DeskAgent.exe` in the `dist` folder that runs without installing.
-
 ## First run
 
-1. Get an API key from console.anthropic.com (you pay per use, add some credit first).
-2. Open Desk Agent from your desktop. The Settings window opens. Paste the key and press Save.
-3. Type a job, for example "Open Notepad and write a shopping list with milk, eggs and bread".
+1. Open Desk Agent from your desktop. The Models window opens.
+2. Press **Download** next to **General**. It's about 2.5 GB, so give it a while.
+3. Close the Models window and type a job, for example "Open Notepad and write a shopping list with milk, eggs and bread".
 
-While it works the window minimises so Claude can see your desktop. It comes back when the job is finished.
+The first reply after starting takes a few seconds longer while the model loads into memory.
 
-**Emergency stop:** shove the mouse hard into any corner of the screen. You can also press Stop, which halts after the current step.
+## Models
 
-By default it asks before every click, keypress and MCP call. Once you trust a task, pick "Allow all for this session" or untick the option in Settings.
-
-## Switching models
-
-The box at the top left picks the model.
-
-| Choice | Good for | Rough cost |
+| Model | Size | Good for |
 |---|---|---|
-| Auto | Lets a quick, cheap model read each job and pick one of the four below. It tells you what it picked and why. | Adds a fraction of a penny per job |
-| Fable 5.1 | The hardest jobs, big programs | Most expensive |
-| Opus 5.5 | Long screen tasks, real programs, careful thinking | Middle |
-| Sonnet 5.5 | Everyday jobs, small programs | Cheaper |
-| Haiku 5.5 | Quick questions and simple jobs | Very cheap |
+| Quick (Qwen 2.5, 1.5B) | 1 GB | Fast chat and simple questions |
+| General (Qwen 3, 4B) | 2.5 GB | Everyday jobs and using tools. Start here. |
+| Coder (Qwen 2.5 Coder, 7B) | 4.7 GB | Writing programs. Slower, wants 8 GB of RAM or more |
 
-You can switch at any point, even halfway through a chat.
+**Auto** picks one for each job: Coder for anything that looks like programming, Quick for short questions at the start of a chat, General for everything else. It only picks from models you've downloaded.
+
+You can also add any other model in GGUF format with **Models**, **Add my own .gguf file**. Hugging Face has thousands.
+
+Models are stored in `%LOCALAPPDATA%\DeskAgent\models`.
+
+## Be realistic about what it can do
+
+A model that fits on a laptop is much smaller than ChatGPT or Claude. Expect it to:
+
+* be good at chat, writing, explaining things and small to medium programs
+* make more mistakes on long multi step jobs, so check its work
+* type and use shortcuts, but **not see the screen**. It finds windows by their titles and types into them blind
+* run at roughly reading speed on a normal laptop. Bigger models are slower
 
 ## Making programs
 
-Ask it to build something, for example "make me a program that renames my holiday photos by the date they were taken". It writes the code into `Documents\DeskAgent Projects`, runs it, fixes what breaks and tells you how to start it. It can only touch files inside that folder. You can change the folder in Settings.
+Ask it to build something, for example "make me a program that renames my holiday photos by the date they were taken". It writes the code into `Documents\DeskAgent Projects`, runs it, and tells you how to start it. It can only touch files inside that folder. To run Python programs it makes, install Python from python.org.
 
 ## How it learns
 
-After every chat it saves the conversation in `%APPDATA%\DeskAgent\history` and updates a memory file with anything worth remembering about you: your work, the apps you use, how you like things done, what worked and what didn't. That memory goes into every new chat, and Auto uses it when choosing a model, so it gets better suited to you the more you use it.
+After every chat it saves the conversation in `%APPDATA%\DeskAgent\history` and asks the model to update a memory file with anything worth remembering about you: your work, the apps you use, how you like things done. That memory goes into every new chat, so it fits you better the more you use it.
 
 Press **Memory** to read or edit what it knows. Untick "Learn from my conversations" in Settings to turn it off.
 
-This is memory, not training. The model itself doesn't change.
-
-The bar under the model box shows how many jobs you've run, since when, and roughly what you've spent.
+This is memory, not retraining. Retraining the model itself would need far more computing power than a laptop has.
 
 ## Adding MCP servers
 
-Press Settings, then **Open config file**. MCP servers go in the `mcpServers` block, in the same format Claude Desktop uses, so you can copy entries straight across. Press Save in Settings afterwards to reconnect.
+Press **Settings**, then **Open config file**. MCP servers go in the `mcpServers` block, in the same format Claude Desktop uses. Press Save in Settings afterwards to reconnect.
 
 ```json
 "mcpServers": {
   "files": {
     "command": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\YOU\\Documents"]
-  },
-  "my-remote-server": {
-    "url": "https://example.com/mcp"
   }
 }
 ```
 
-Servers started with `npx` need Node.js installed. If a server fails to start, the app tells you, and the details are in `%APPDATA%\DeskAgent\mcp_servers.log`.
+Servers started with `npx` need Node.js installed.
 
 ## Settings
 
@@ -84,25 +80,23 @@ All settings live in `%APPDATA%\DeskAgent\config.json`.
 
 | Setting | What it does |
 |---|---|
-| `model` | `auto`, or a model name such as `claude-sonnet-5-5`. Easier to set with the box at the top. |
-| `effort` | How hard it thinks when you pick the model yourself. Auto sets its own. |
-| `coding_tools` | Let it write and run code in the projects folder. |
-| `workspace` | The projects folder. |
-| `learn` | Keep the memory file up to date after each chat. |
-| `computer_use` | Turn screen control on or off. Off means it only uses web search and MCP tools. |
-| `confirm_actions` | Ask before each action. |
-| `max_steps` | How many rounds it gets before pausing to check in with you. |
-| `screenshot_max_width` | Screenshots are shrunk to this width before sending. Smaller is cheaper and faster. |
+| `model` | `auto`, or a model name such as `general` |
+| `context` | How much of the chat the model can hold at once. 8192 is a good balance; bigger uses more RAM |
+| `threads` | CPU threads to use. 0 lets llama.cpp decide |
+| `coding_tools` | Let it write and run code in the projects folder |
+| `desktop_tools` | Let it open apps and type into windows |
+| `web_tools` | Let it search the web and read pages |
+| `confirm_actions` | Ask before it runs commands, types, opens things or changes files |
+| `learn` | Keep the memory file up to date after each chat |
+| `max_steps` | How many tool steps it gets before checking in with you |
+| `workspace` | The projects folder |
 
-## Things to know
+**Emergency stop:** shove the mouse into any corner of the screen while it's typing, or press Stop.
 
-* **Cost.** Every step sends a screenshot, so a long job can cost tens of pence or more. Watch your usage on the Anthropic console for the first few days.
-* **Your API key is stored in plain text** in the config file. Don't share that file.
-* **It sees everything on screen.** Close anything private before giving it a job.
-* **It runs commands for real.** Keep confirmations on until you trust it, and only let it run code you'd be happy running yourself.
-* **It can get things wrong.** Keep confirmations on for anything that touches money, email or files you care about.
-* If Claude's safety checks decline a request, the app retries on another model automatically.
+## Building it yourself
+
+Install Python 3.12 from python.org (tick "Add python.exe to PATH"), put `deskagent.py`, `requirements.txt`, `icon.ico` and `build.bat` in one folder, and double click `build.bat`. It builds the app and downloads the llama.cpp engine into `dist\DeskAgent`. Keep that whole folder together and run `DeskAgent.exe` from it.
 
 ## What's in deskagent.py
 
-It's split into labelled sections, in this order: models, settings and saved data, screen control, coding tools, MCP servers, the agent, and the window.
+It's split into labelled sections, in this order: models, settings and saved data, downloading models, the local AI engine, tools, MCP servers, the agent, and the window.
