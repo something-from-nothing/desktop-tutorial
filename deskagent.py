@@ -787,6 +787,17 @@ class Brain:
         self.allow_all = False
         threading.Thread(target=self.mcp.start, daemon=True).start()
 
+    def warm_up(self):
+        """Starts the model the next chat will most likely use."""
+        try:
+            ready = installed_models(self.cfg)
+            wanted = self.cfg["model"] if self.cfg["model"] in ready else "general" if "general" in ready else next(iter(ready), None)
+            if wanted and not self.busy_chat:
+                self.engine.load(wanted)
+                self.emit({"type": "state"})
+        except Exception:
+            log.exception("warm up failed")
+
     def reload_config(self, changes: dict):
         cfg = load_config()
         cfg.update(changes)
@@ -1503,13 +1514,12 @@ def find_browser() -> str | None:
 
 
 def open_window(url: str):
-    """Opens the app window. Returns the browser process when it gets its own, so the
-    app can quit when the window closes."""
+    """Opens the app window."""
     browser = find_browser()
     if browser:
         profile = sub_dir("window")
         return subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
-                                 "--no-default-browser-check", "--window-size=1200,820"])
+                                 "--no-default-browser-check", "--disable-background-mode", "--window-size=1200,820"])
     import webbrowser
 
     webbrowser.open(url)
@@ -1540,14 +1550,24 @@ def main():
     if headless:
         print(server.url, flush=True)
 
-    window = None if headless else open_window(server.url)
+    if not headless:
+        open_window(server.url)
+    # Load the likely model now, so the first reply doesn't wait for it.
+    threading.Thread(target=server.brain.warm_up, daemon=True).start()
+
+    # Stay running while a window has the page open. Edge often hands a new window to
+    # an Edge process that is already running and the one we launched exits at once,
+    # so the browser process can't tell us when the window closes; the page's live
+    # connection can.
+    had_window, idle_since = False, time.time()
     try:
         while True:
             time.sleep(1)
-            if window is not None and window.poll() is not None:
-                break  # the app window was closed
-            if window is None and not headless and time.time() - server.hub.last_seen > 180 and not server.hub.clients:
-                break  # opened in a normal browser and the tab has been gone a while
+            if server.hub.clients or server.brain.busy_chat:
+                had_window, idle_since = had_window or bool(server.hub.clients), time.time()
+            elif not headless and time.time() - idle_since > (30 if had_window else 300):
+                log.info("no window open, quitting")
+                break
     except KeyboardInterrupt:
         pass
     finally:
