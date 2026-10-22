@@ -17,6 +17,7 @@ let the GitHub workflow make the installer.
 
 import asyncio
 import base64
+import hashlib
 import html
 import io
 import json
@@ -31,6 +32,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -126,6 +128,10 @@ DEFAULTS = {
     # stdio server:  {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\me\\Documents"]}
     # remote server: {"url": "https://example.com/mcp"}
     "mcpServers": {},
+    # Google sign in. Make a "Desktop app" OAuth client at console.cloud.google.com and paste its details here.
+    "google_client_id": "",
+    "google_client_secret": "",
+    "require_sign_in": False,
 }
 
 
@@ -144,8 +150,24 @@ def models_dir() -> Path:
     return path
 
 
+def current_user() -> dict | None:
+    """The Google account signed in on this laptop, or None for the guest profile."""
+    return read_json(app_dir() / "session.json", {}).get("user")
+
+
+def profile_dir() -> Path:
+    """Each Google account gets its own chats, projects, memory and stats. The guest
+    profile uses the top folder, so nothing made before sign in existed is lost."""
+    user = current_user()
+    if not user:
+        return app_dir()
+    path = app_dir() / "profiles" / hashlib.sha256(user["sub"].encode()).hexdigest()[:16]
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def sub_dir(name: str) -> Path:
-    path = app_dir() / name
+    path = profile_dir() / name
     path.mkdir(exist_ok=True)
     return path
 
@@ -155,11 +177,11 @@ def config_path() -> Path:
 
 
 def memory_path() -> Path:
-    return app_dir() / "memory.md"
+    return profile_dir() / "memory.md"
 
 
 def stats_path() -> Path:
-    return app_dir() / "stats.json"
+    return profile_dir() / "stats.json"
 
 
 def read_json(path: Path, default):
@@ -1070,6 +1092,74 @@ class Brain:
         self.mcp.close()
 
 
+# ---------------------------------------------------------------- Google sign in
+
+# Overridable so the sign in flow can be tested without Google.
+GOOGLE_AUTH_URL = os.environ.get("DESKAGENT_GOOGLE_AUTH_URL", "https://accounts.google.com/o/oauth2/v2/auth")
+GOOGLE_TOKEN_URL = os.environ.get("DESKAGENT_GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
+
+
+class GoogleSignIn:
+    """Google's sign in for desktop apps: the browser goes to Google, Google sends it
+    back to this app on 127.0.0.1 with a one time code, and the app swaps the code for
+    the user's name and email. PKCE stops anyone else using an intercepted code."""
+
+    def __init__(self):
+        self.pending: dict[str, dict] = {}  # state -> {"verifier", "redirect"}
+
+    def start(self, cfg: dict, port: int) -> str:
+        if not cfg.get("google_client_id"):
+            raise ValueError("Google sign in isn't set up yet. Add your Google client ID in the sign in settings.")
+        state = secrets.token_urlsafe(16)
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        redirect = f"http://127.0.0.1:{port}/oauth/callback"
+        self.pending[state] = {"verifier": verifier, "redirect": redirect, "time": time.time()}
+        query = urllib.parse.urlencode({
+            "client_id": cfg["google_client_id"], "redirect_uri": redirect, "response_type": "code",
+            "scope": "openid email profile", "state": state, "code_challenge": challenge,
+            "code_challenge_method": "S256", "prompt": "select_account",
+        })
+        return f"{GOOGLE_AUTH_URL}?{query}"
+
+    def finish(self, cfg: dict, state: str, code: str) -> dict:
+        attempt = self.pending.pop(state, None)
+        if not attempt or time.time() - attempt["time"] > 600:
+            raise ValueError("That sign in link has expired. Try again.")
+        form = urllib.parse.urlencode({
+            "code": code, "client_id": cfg["google_client_id"], "client_secret": cfg.get("google_client_secret", ""),
+            "redirect_uri": attempt["redirect"], "grant_type": "authorization_code", "code_verifier": attempt["verifier"],
+        }).encode()
+        req = urllib.request.Request(GOOGLE_TOKEN_URL, data=form, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                tokens = json.load(r)
+        except urllib.error.HTTPError as e:
+            raise ValueError(f"Google refused the sign in: {e.read().decode('utf-8', 'replace')[:300]}")
+        # The ID token came straight from Google over HTTPS, so its contents can be read
+        # directly; the checks below make sure it was meant for this app and is current.
+        payload = tokens["id_token"].split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+        if claims.get("aud") != cfg["google_client_id"] or claims.get("iss") not in ("https://accounts.google.com", "accounts.google.com"):
+            raise ValueError("That sign in wasn't meant for this app.")
+        if claims.get("exp", 0) < time.time():
+            raise ValueError("That sign in has expired. Try again.")
+        user = {"sub": claims["sub"], "email": claims.get("email", ""), "name": claims.get("name") or claims.get("email", ""),
+                "picture": claims.get("picture", "")}
+        write_json(app_dir() / "session.json", {"user": user, "signed_in": datetime.now().isoformat(timespec="seconds")})
+        return user
+
+
+def sign_out():
+    (app_dir() / "session.json").unlink(missing_ok=True)
+
+
+SIGNED_IN_PAGE = """<!doctype html><meta charset="utf-8"><title>Desk Agent</title>
+<body style="font-family:Segoe UI,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:90vh;color:#1b2230">
+<div style="text-align:center"><h2>{title}</h2><p>{text}</p><p>You can close this window.</p></div>
+<script>setTimeout(() => window.close(), 1500)</script></body>"""
+
+
 # ---------------------------------------------------------------- the web server
 
 class Hub:
@@ -1102,6 +1192,7 @@ class Server:
         self.token = secrets.token_urlsafe(24)
         self.hub = Hub()
         self.brain = Brain(self.hub.emit)
+        self.google = GoogleSignIn()
         self.port = port or free_port()
         server = self
 
@@ -1140,6 +1231,8 @@ class Server:
                 query = urllib.parse.parse_qs(url.query)
                 if method == "GET" and url.path == "/favicon.ico":
                     return self._send(200, ICON_SVG, "image/svg+xml")
+                if method == "GET" and url.path == "/oauth/callback":
+                    return self._oauth(query)
                 if not self._allowed(query):
                     return self._send(403, {"error": "forbidden"})
                 server.hub.last_seen = time.time()
@@ -1161,6 +1254,22 @@ class Server:
                 except (ValueError, RuntimeError, OSError) as e:
                     log.warning("api error: %s", e)
                     self._send(400, {"error": str(e)})
+
+            def _oauth(self, query):
+                # Google sends the browser here. It can't carry the app's secret, but it
+                # must carry the one time state value the app made for this sign in.
+                try:
+                    if query.get("error"):
+                        raise ValueError(query["error"][0])
+                    if server.brain.busy_chat:
+                        raise ValueError("Desk Agent is busy. Wait for the current job, then sign in again.")
+                    user = server.google.finish(server.brain.cfg, query.get("state", [""])[0], query.get("code", [""])[0])
+                    page = SIGNED_IN_PAGE.format(title=f"Signed in as {html.escape(user['name'])}", text=html.escape(user["email"]))
+                    server.hub.emit({"type": "account"})
+                except Exception as e:
+                    log.exception("sign in failed")
+                    page = SIGNED_IN_PAGE.format(title="Sign in didn't work", text=html.escape(str(e)))
+                self._send(200, page, "text/html")
 
             def _events(self):
                 self.send_response(200)
@@ -1200,6 +1309,20 @@ class Server:
 
         if head == "state" and method == "GET":
             return self.state()
+        if head == "auth":
+            if arg == "start" and method == "POST":
+                return {"url": self.google.start(cfg, self.port)}
+            if arg == "signout" and method == "POST":
+                if brain.busy_chat:
+                    raise RuntimeError("Wait for the current job to finish first.")
+                sign_out()
+                return None
+            if arg == "setup" and method == "POST":
+                changes = {"google_client_id": body.get("client_id", "").strip(), "require_sign_in": bool(body.get("require_sign_in"))}
+                if (body.get("client_secret") or "").strip():  # blank keeps the saved secret
+                    changes["google_client_secret"] = body["client_secret"].strip()
+                brain.reload_config(changes)
+                return None
         if head == "chats":
             if method == "POST" and not arg:
                 return store.new_chat(body.get("project"), body.get("agent") or "assistant")
@@ -1287,7 +1410,7 @@ class Server:
                     shutil.rmtree(models_dir() / arg, ignore_errors=True)
                 return None
         if head == "config" and method == "POST":
-            allowed = {"model", "context", "threads", "learn", "confirm_actions", "max_steps", "workspace", "mcpServers"}
+            allowed = {"model", "context", "threads", "learn", "confirm_actions", "max_steps", "workspace", "mcpServers", "require_sign_in"}
             changes = {k: v for k, v in body.items() if k in allowed}
             if "context" in changes and changes["context"] != cfg["context"]:
                 brain.engine.stop()  # reload with the new size next time
@@ -1337,6 +1460,10 @@ class Server:
             "engine": bool(find_llama_server()),
             "loaded": self.brain.engine.model,
             "mcp": {"tools": len(self.brain.mcp.tools), "failed": self.brain.mcp.failed},
+            "user": current_user(),
+            "google": {"ready": bool(cfg.get("google_client_id")), "client_id": cfg.get("google_client_id", ""),
+                       "has_secret": bool(cfg.get("google_client_secret")), "require": bool(cfg.get("require_sign_in"))},
+            "callback": f"http://127.0.0.1:{self.port}/oauth/callback",
         }
 
     def serve(self):
@@ -1550,6 +1677,16 @@ body.panel-open #top .lbl { display: none; } body.panel-open #top .short { displ
 .bar-outer { height: 6px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 6px; } .bar-inner { height: 100%; background: var(--accent); }
 .checks label { display: block; margin: 4px 0; }
 .ok { color: #12805c; }
+#side .account { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 4px 4px 8px; }
+#side .account .who { flex: 1; min-width: 0; font-size: 13px; line-height: 1.3; }
+#side .account .who small { color: var(--side-dim); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#side .account button { padding: 4px 8px; font-size: 12px; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; flex-shrink: 0; object-fit: cover; }
+.gbtn { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #1f1f1f; border: 1px solid #747775; border-radius: 20px; padding: 8px 16px; font-weight: 500; }
+.gbtn:hover { background: #f2f2f2; border-color: #747775; }
+#gate { position: fixed; inset: 0; background: var(--bg); z-index: 20; display: flex; align-items: center; justify-content: center; text-align: center; }
+#gate .box { max-width: 380px; padding: 20px; }
+ol.steps li { margin: 6px 0; }
 @media (max-width: 760px) { #side { display: none; } #panel { position: fixed; inset: 0; width: 100%; min-width: 0; z-index: 5; } }
 </style>
 </head>
@@ -1568,6 +1705,7 @@ body.panel-open #top .lbl { display: none; } body.panel-open #top .short { displ
     <div id="chats"></div>
   </div>
   <div class="foot">
+    <div id="account" class="account"></div>
     <button onclick="showAgents()">Agents</button>
     <button onclick="showModels()">Models</button>
     <button onclick="showMemory()">Memory</button>
@@ -1629,7 +1767,7 @@ async function api(method, path, body) {
 }
 async function refresh() {
   S = await api("GET", "/api/state");
-  renderSide(); renderTop();
+  renderSide(); renderTop(); renderAccount();
 }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c])); }
 function $(id) { return document.getElementById(id); }
@@ -1832,6 +1970,7 @@ function liveTarget(sub) {
 }
 function onEvent(ev) {
   if (ev.type === "stats" || ev.type === "state") { refresh(); return; }
+  if (ev.type === "account") { onAccountChange(); return; }
   if (ev.type === "confirm") { askConfirm(ev); return; }
   if (!chat || ev.chat !== chat.id) { if (ev.type === "done") refresh(); return; }
   if (ev.type === "status") { setStatus(ev.text); return; }
@@ -2009,12 +2148,71 @@ function showSettings() {
       <label><input type="checkbox" id="seLearn" ${c.learn ? "checked" : ""}> Learn from my conversations</label></div>
     <div class="field"><label>MCP servers (same format as Claude Desktop's mcpServers)</label><textarea id="seMcp" rows="7" style="width:100%;font-family:Consolas,monospace;font-size:13px">${esc(JSON.stringify(c.mcpServers, null, 2))}</textarea>
       <small style="color:var(--dim)">${S.mcp.tools} MCP tools connected${Object.keys(S.mcp.failed).length ? ". Failed: " + esc(Object.entries(S.mcp.failed).map(([k, v]) => k + " (" + v + ")").join(", ")) : ""}</small></div>
+    <div class="field"><label>Google sign in</label><button onclick="this.closest('.modal-bg').remove(); googleSetup()">${S.google.ready ? "Change Google sign in settings" : "Set up Google sign in"}</button></div>
     <div class="buttons"><button style="margin-right:auto" onclick="api('POST','/api/open-folder',{which:'data'})">Open data folder</button><button onclick="this.closest('.modal-bg').remove()">Cancel</button><button class="primary" id="seSave">Save</button></div>`, bg => {
     bg.querySelector("#seSave").onclick = async () => {
       let mcp; try { mcp = JSON.parse($("seMcp").value || "{}"); } catch (e) { alert("The MCP servers box isn't valid JSON."); return; }
       await setConfig({workspace: $("seWs").value, context: +$("seCtx").value, max_steps: +$("seSteps").value || 25,
         confirm_actions: $("seConfirm").checked, learn: $("seLearn").checked, mcpServers: mcp});
       bg.remove(); toast("Settings saved");
+    };
+  });
+}
+
+// ------------------------------------------------ accounts
+const G_ICON = `<svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.7 13.2l7.9 6.2C12.5 13.6 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-16.7z"/><path fill="#FBBC05" d="M10.6 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.6 0 20.2 0 24s1 7.4 2.7 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.2 0-11.5-4.1-13.4-9.9l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/></svg>`;
+function avatar(u) {
+  return u.picture ? `<img class="avatar" src="${esc(u.picture)}" referrerpolicy="no-referrer" alt="">` : `<div class="avatar">${esc((u.name || u.email || "?")[0].toUpperCase())}</div>`;
+}
+function renderAccount() {
+  const u = S.user;
+  $("account").innerHTML = u
+    ? `${avatar(u)}<div class="who">${esc(u.name)}<small>${esc(u.email)}</small></div><button onclick="signOut()">Sign out</button>`
+    : `<div class="avatar" style="background:var(--side-hover)">&#128100;</div><div class="who">Guest<small>Not signed in</small></div><button onclick="signIn()">Sign in</button>`;
+  let gate = $("gate");
+  if (S.google.require && !u) {
+    if (!gate) { gate = document.createElement("div"); gate.id = "gate"; document.body.appendChild(gate); }
+    gate.innerHTML = `<div class="box"><h1>Desk Agent</h1><p style="color:var(--dim)">Sign in to open your chats.</p><button class="gbtn" onclick="signIn()">${G_ICON} Sign in with Google</button></div>`;
+  } else if (gate) gate.remove();
+}
+async function signIn() {
+  if (!S.google.ready) { googleSetup(); return; }
+  try {
+    const r = await api("POST", "/api/auth/start");
+    window.open(r.url, "deskagent_signin", "width=520,height=680");
+    setStatus("Finish signing in in the Google window...");
+  } catch (e) { toast(e.message); }
+}
+async function signOut() {
+  try { await api("POST", "/api/auth/signout"); } catch (e) { toast(e.message); return; }
+  chat = null; project = null; await refresh(); renderChat(); toast("Signed out");
+}
+async function onAccountChange() {
+  chat = null; project = null; closePanel(); setStatus("");
+  await refresh();
+  if (S.chats.length) await openChat(S.chats[0].id); else renderChat();
+  if (S.user) toast(`Signed in as ${S.user.name}`);
+}
+function googleSetup() {
+  const g = S.google;
+  modal(`<h2>Sign in with Google</h2>
+    <p style="color:var(--dim);margin-top:0">Signing in gives you your own chats, projects and memory on this laptop. Everything still stays on the laptop; Google only tells Desk Agent who you are.</p>
+    <p>Google needs to know about your copy of Desk Agent first. This takes about five minutes, once:</p>
+    <ol class="steps">
+      <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">console.cloud.google.com/apis/credentials</a> and sign in.</li>
+      <li>Make a project if it asks (any name, for example Desk Agent).</li>
+      <li>Set up the <b>OAuth consent screen</b>: choose External, fill in the app name and your email, and add yourself as a test user.</li>
+      <li>Back on Credentials, press <b>Create credentials</b>, <b>OAuth client ID</b>, and choose <b>Desktop app</b>.</li>
+      <li>Copy the Client ID and Client secret into the boxes below.</li>
+    </ol>
+    <div class="field"><label>Client ID</label><input type="text" id="gId" value="${esc(g.client_id)}" placeholder="something.apps.googleusercontent.com"></div>
+    <div class="field"><label>Client secret ${g.has_secret ? "(saved, leave blank to keep)" : ""}</label><input type="text" id="gSecret" placeholder="GOCSPX-..."></div>
+    <div class="field checks"><label><input type="checkbox" id="gRequire" ${g.require ? "checked" : ""}> Ask for sign in every time Desk Agent opens</label></div>
+    <div class="buttons"><button onclick="this.closest('.modal-bg').remove()">Cancel</button><button class="primary" id="gSave">Save and sign in</button></div>`, bg => {
+    bg.querySelector("#gSave").onclick = async () => {
+      const id = $("gId").value.trim(); if (!id) { alert("Paste the Client ID first."); return; }
+      await api("POST", "/api/auth/setup", {client_id: id, client_secret: $("gSecret").value.trim(), require_sign_in: $("gRequire").checked});
+      bg.remove(); await refresh(); signIn();
     };
   });
 }

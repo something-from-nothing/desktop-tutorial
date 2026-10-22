@@ -16,6 +16,7 @@ It can chat, write and run programs, build web pages you can try out on the spot
 * **Edit** an earlier message, **regenerate** a reply, **stop** a reply part way
 * **Models** you can switch between, plus **Auto**
 * **Memory** of what it learns about you, which you can read and edit
+* **Sign in with Google**, so each person gets their own chats, projects and memory
 * Proper formatting: headings, lists, tables and code blocks with a copy button
 
 The window is a web page that the app serves to itself and shows in its own Edge window, so it looks like a normal app. Nothing is put online.
@@ -63,6 +64,20 @@ A model that fits on a laptop is much smaller than ChatGPT or Claude. Expect it 
 * type and use shortcuts, but **not see the screen**. It finds windows by their titles and types into them blind
 * not read pictures
 * run at roughly reading speed on a normal laptop. Bigger models are slower
+
+## Signing in with Google
+
+Signing in gives you your own chats, projects, memory and stats on the laptop. Someone else who signs in with their Google account gets theirs, and anything made before signing in stays under Guest. Google only tells Desk Agent your name and email. Your chats are never sent to Google.
+
+Google has to know about your copy of the app first. Do this once, which takes about five minutes:
+
+1. Go to [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) and sign in.
+2. Make a project if it asks, called anything, for example Desk Agent.
+3. Set up the **OAuth consent screen**: choose External, fill in the app name and your email, and add your own Gmail address as a test user.
+4. On Credentials, press **Create credentials**, **OAuth client ID**, and choose **Desktop app**.
+5. In Desk Agent press **Sign in** at the bottom left, paste the Client ID and Client secret, and press **Save and sign in**.
+
+Tick "Ask for sign in every time Desk Agent opens" if you want the app locked until someone signs in. That keeps casual users out, but it isn't encryption: someone with access to your Windows account could still read the files in `%APPDATA%\DeskAgent`.
 
 ## Agents
 
