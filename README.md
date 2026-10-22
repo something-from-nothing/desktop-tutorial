@@ -6,20 +6,24 @@ The whole app is one file, `deskagent.py`, which builds into one file, `DeskAgen
 
 The thinking happens on Anthropic's servers, so you need an internet connection and an API key. Nothing big runs on the laptop itself, which is why it's fine on an Acer Aspire 5.
 
-## Getting the EXE
+## Installing it
 
-**Easiest:** every push to `main` builds `DeskAgent.exe` on GitHub. Open the repo on GitHub, go to **Actions**, click the latest **Build Windows EXE** run and download the **DeskAgent** file at the bottom. Unzip it and you have the EXE.
+Download **DeskAgent-Setup.exe** and double click it. It installs Desk Agent for your user account (no admin password needed), puts an icon on your desktop and in the Start menu, and adds an uninstaller under Settings, Apps. After that you just double click the icon like any other app.
 
-To get a proper download link, push a tag such as `v1.0.0` and the EXE gets attached to a GitHub Release.
+The full source code is installed with it, in the `source` folder inside the install folder.
 
-**Building it yourself on the laptop:** install Python 3.12 from python.org (tick "Add python.exe to PATH"), put `deskagent.py`, `requirements.txt` and `build.bat` in one folder, then double click `build.bat`. The EXE ends up in the `dist` folder.
+**Where to get the installer:** every push to `main` builds it on GitHub. Open the repo on GitHub, go to **Actions**, click the latest **Build Windows EXE** run and download **DeskAgent-Setup** at the bottom. Unzip it to get `DeskAgent-Setup.exe`.
 
-Windows SmartScreen will probably warn you the first time because the EXE isn't signed. Click **More info** then **Run anyway**.
+For a permanent link, go to **Releases**, **Draft a new release**, type a tag such as `v1.0.0` and publish. The installer is attached automatically and is always at the latest release.
+
+Windows SmartScreen will probably warn you the first time because the installer isn't signed. Click **More info** then **Run anyway**.
+
+**Building a portable EXE yourself instead:** install Python 3.12 from python.org (tick "Add python.exe to PATH"), put `deskagent.py`, `requirements.txt`, `icon.ico` and `build.bat` in one folder, then double click `build.bat`. You get a single `DeskAgent.exe` in the `dist` folder that runs without installing.
 
 ## First run
 
 1. Get an API key from console.anthropic.com (you pay per use, add some credit first).
-2. Open DeskAgent.exe. The Settings window opens. Paste the key and press Save.
+2. Open Desk Agent from your desktop. The Settings window opens. Paste the key and press Save.
 3. Type a job, for example "Open Notepad and write a shopping list with milk, eggs and bread".
 
 While it works the window minimises so Claude can see your desktop. It comes back when the job is finished.

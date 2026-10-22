@@ -4,7 +4,7 @@ py -3.12 -m venv .venv || goto :error
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 pip install -r requirements.txt || goto :error
-pyinstaller --noconfirm --onefile --windowed --name DeskAgent ^
+pyinstaller --noconfirm --onefile --windowed --name DeskAgent --icon icon.ico ^
   --collect-data jsonschema_specifications ^
   deskagent.py || goto :error
 echo.
