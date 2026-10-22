@@ -6,13 +6,12 @@ call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip
 pip install -r requirements.txt || goto :error
 pyinstaller --noconfirm --onedir --windowed --name DeskAgent --icon icon.ico ^
-  --collect-data jsonschema_specifications ^
+  --collect-data jsonschema_specifications --hidden-import pypdf ^
   deskagent.py || goto :error
 echo Downloading the llama.cpp engine...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$r = Invoke-RestMethod https://api.github.com/repos/ggml-org/llama.cpp/releases/latest;" ^
-  "$a = $r.assets | Where-Object { $_.name -like '*bin-win-cpu-x64.zip' } | Select-Object -First 1;" ^
-  "if (-not $a) { $a = $r.assets | Where-Object { $_.name -like '*bin-win-avx2-x64.zip' } | Select-Object -First 1 };" ^
+  "$rs = Invoke-RestMethod 'https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=40'; $a = $null;" ^
+  "foreach ($r in $rs) { $a = $r.assets | Where-Object { $_.name -like '*.zip' -and $_.name -match 'win' -and $_.name -match 'x64' -and $_.name -match '(cpu|avx2)' -and $_.name -notmatch '(cuda|cudart|vulkan|sycl|hip|opencl|kompute|arm64)' } | Select-Object -First 1; if ($a) { break } };" ^
   "Invoke-WebRequest $a.browser_download_url -OutFile llama.zip;" ^
   "Expand-Archive llama.zip -DestinationPath llama_tmp -Force;" ^
   "$exe = Get-ChildItem llama_tmp -Recurse -Filter llama-server.exe | Select-Object -First 1;" ^

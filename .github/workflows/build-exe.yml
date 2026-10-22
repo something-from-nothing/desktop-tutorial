@@ -26,25 +26,34 @@ jobs:
         run: >
           pyinstaller --noconfirm --onedir --windowed --name DeskAgent
           --icon icon.ico
-          --collect-data jsonschema_specifications
+          --collect-data jsonschema_specifications --hidden-import pypdf
           deskagent.py
       - name: Add the llama.cpp engine
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = gh release view --repo ggml-org/llama.cpp --json tagName --jq .tagName
-          Write-Host "Using llama.cpp $tag"
-          gh release download $tag --repo ggml-org/llama.cpp --pattern "*bin-win-cpu-x64.zip" --dir llama_zip
-          if (-not (Get-ChildItem llama_zip -ErrorAction SilentlyContinue)) {
-            gh release download $tag --repo ggml-org/llama.cpp --pattern "*bin-win-avx2-x64.zip" --dir llama_zip
+          # Release names change over time, so look through recent releases for a plain
+          # Windows x64 CPU build rather than assuming a file name.
+          $releases = gh api "repos/ggml-org/llama.cpp/releases?per_page=40" | ConvertFrom-Json
+          Write-Host "Latest release assets:"; $releases[0].assets | ForEach-Object { Write-Host "  $($_.name)" }
+          $asset = $null
+          foreach ($r in $releases) {
+            $asset = $r.assets | Where-Object {
+              $_.name -like '*.zip' -and $_.name -match 'win' -and $_.name -match 'x64' -and $_.name -match '(cpu|avx2)' -and
+              $_.name -notmatch '(cuda|cudart|vulkan|sycl|hip|opencl|kompute|arm64)'
+            } | Select-Object -First 1
+            if ($asset) { Write-Host "Using $($r.tag_name): $($asset.name)"; break }
           }
-          Expand-Archive (Get-ChildItem llama_zip\*.zip | Select-Object -First 1).FullName -DestinationPath llama_tmp -Force
+          if (-not $asset) { throw "No Windows x64 CPU build of llama.cpp found in recent releases" }
+          Invoke-WebRequest $asset.browser_download_url -OutFile llama.zip
+          Expand-Archive llama.zip -DestinationPath llama_tmp -Force
           $exe = Get-ChildItem llama_tmp -Recurse -Filter llama-server.exe | Select-Object -First 1
-          if (-not $exe) { throw "llama-server.exe not found in the llama.cpp download" }
+          if (-not $exe) { throw "llama-server.exe not found in $($asset.name)" }
           New-Item -ItemType Directory -Force dist\DeskAgent\llama | Out-Null
           Copy-Item (Join-Path $exe.DirectoryName '*') dist\DeskAgent\llama -Recurse -Force
           & dist\DeskAgent\llama\llama-server.exe --version
           if ($LASTEXITCODE -ne 0) { throw "llama-server.exe would not run" }
+          exit 0
       - name: Install Inno Setup
         run: |
           if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
