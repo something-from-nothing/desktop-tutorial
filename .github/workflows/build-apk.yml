@@ -113,6 +113,22 @@ jobs:
           cp "$apk" DeskAgent-Complete.apk
           ls -la DeskAgent-Complete.apk
 
+      - name: Build the phone APK, with the Tiny model inside
+        # Under 500 MB, so it can be sent straight to a phone as one file.
+        run: |
+          rm android/app/src/main/jniLibs/arm64-v8a/libmodel_quick.so
+          repo=bartowski/Qwen2.5-0.5B-Instruct-GGUF
+          name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_k_m' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
+          echo "Packing in $repo/$name"
+          curl -fL --retry 3 -o android/app/src/main/jniLibs/arm64-v8a/libmodel_tiny.so "https://huggingface.co/$repo/resolve/main/$name"
+          gradle -p android assembleRelease --no-daemon
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify "$apk"
+          unzip -l "$apk" | grep libmodel_tiny
+          cp "$apk" DeskAgent-Phone.apk
+          ls -la DeskAgent-Phone.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: DeskAgent-APK
@@ -130,10 +146,12 @@ jobs:
           overwrite_files: true
           body: |
             **DeskAgent-Complete.apk** has everything, including the Quick AI model: install it and it works, no other downloads.
+            **DeskAgent-Phone.apk** has the Tiny AI model inside (under 500 MB): install it and it works.
             **DeskAgent.apk** is the small version (about 40 MB); it downloads a model the first time you open it.
             Built from ${{ github.sha }}.
           files: |
             DeskAgent-Complete.apk
+            DeskAgent-Phone.apk
             DeskAgent.apk
 
       - name: Publish the APK to the apk branch
@@ -156,6 +174,8 @@ jobs:
           mkdir pieces && cd pieces
           split -b 90m -d -a 2 ../DeskAgent-Complete.apk DeskAgent-Complete.apk.part
           sha256sum ../DeskAgent-Complete.apk | cut -d' ' -f1 > DeskAgent-Complete.apk.sha256
+          split -b 90m -d -a 2 ../DeskAgent-Phone.apk DeskAgent-Phone.apk.part
+          sha256sum ../DeskAgent-Phone.apk | cut -d' ' -f1 > DeskAgent-Phone.apk.sha256
           ls -la
           git init -b apk-complete
           git config user.name "github-actions[bot]"
