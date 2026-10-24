@@ -69,7 +69,15 @@ a { color: var(--accent); text-decoration: none; }
 #side .stats { font-size: 12px; color: var(--faint); padding: 6px 22px 10px; }
 
 /* ---- main screen ---- */
-#main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; color: var(--text);
+        background: radial-gradient(120% 60% at 100% 0%, #2563eb99, transparent 60%),
+                    radial-gradient(90% 50% at 0% 100%, #ff7a1a73, transparent 65%),
+                    linear-gradient(165deg, #3b0a78 0%, #7e1d8f 50%, #c2185b 100%);
+        /* Everything sitting on the colour is white; sheets, menus and the drawer keep the plain colours. */
+        --text: #ffffff; --dim: #ffffffd1; --faint: #ffffff9e; --raised: #ffffff2e; --surface: #ffffff26; --line: #ffffff47;
+        --accent: #ffffff; --accent-text: #4a0f6b; --accent-soft: #ffffff33; --danger: #ffd2cc; --code: #00000033; color-scheme: dark; }
+#composer .box { -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+#main ::placeholder { color: var(--faint); }
 #top { display: flex; align-items: center; gap: 2px; padding: 4px 6px; min-height: 56px; }
 #title { font-size: 17px; font-weight: 500; background: transparent; border: 0; padding: 8px 6px; flex: 1; min-width: 0; text-overflow: ellipsis; border-radius: 10px; }
 #title:focus { background: var(--raised); }
