@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -19,20 +20,9 @@ import android.webkit.WebView;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -43,8 +33,6 @@ import java.util.concurrent.Executors;
 class Bridge {
     private static final String TAG = "DeskAgent";
     private static final ExecutorService pool = Executors.newCachedThreadPool();
-    /** Online model requests in progress, so Stop can cut them off. */
-    private static final Map<String, HttpURLConnection> active = new ConcurrentHashMap<>();
     private final Context context;
     private final WebView web;
     private final Core core;
@@ -205,6 +193,29 @@ class Bridge {
         if (on) context.startForegroundService(i); else context.startService(i);
     }
 
+    /**
+     * Opens Claude, Gemini or Perplexity's own website in a browser tab over the app,
+     * where you sign in with your own account. Only these three sites.
+     */
+    @JavascriptInterface
+    public void openWebsite(String which) {
+        String url;
+        switch (which) {
+            case "claude": url = "https://claude.ai/new"; break;
+            case "gemini": url = "https://gemini.google.com/app"; break;
+            case "perplexity": url = "https://www.perplexity.ai/"; break;
+            default: return;
+        }
+        // A Chrome Custom Tab: the browser's own tab, so Google and other sign ins work
+        // and you stay signed in, shown on top of Desk Agent.
+        Bundle extras = new Bundle();
+        extras.putBinder("android.support.customtabs.extra.SESSION", null);
+        Intent tab = new Intent(Intent.ACTION_VIEW, Uri.parse(url)).putExtras(extras)
+                .putExtra("android.support.customtabs.extra.TOOLBAR_COLOR", 0xFF1F5F4A)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        context.startActivity(tab);
+    }
+
     @JavascriptInterface
     public void bringToFront() {
         context.startActivity(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
@@ -259,79 +270,6 @@ class Bridge {
         if (onScheduledDone != null) ui.post(onScheduledDone);
     }
 
-    // ------------------------------------------------ online models
-
-    /**
-     * Sends a request to an online model (Claude, Gemini or Perplexity) and passes its
-     * streamed reply to the page a few lines at a time, as "stream" events. Returns
-     * the HTTP status, with the error body when it failed.
-     */
-    private JSONObject httpStream(JSONObject a) throws Exception {
-        String url = a.getString("url");
-        if (!url.startsWith("https://")) throw new Exception("Online models must use https.");
-        String sid = a.getString("sid");
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setRequestMethod("POST");
-        c.setDoOutput(true);
-        c.setConnectTimeout(30_000);
-        c.setReadTimeout(300_000);
-        JSONObject headers = a.optJSONObject("headers");
-        if (headers != null) {
-            Iterator<String> it = headers.keys();
-            while (it.hasNext()) {
-                String k = it.next();
-                c.setRequestProperty(k, headers.getString(k));
-            }
-        }
-        active.put(sid, c);
-        JSONObject result = new JSONObject();
-        try {
-            try (OutputStream out = c.getOutputStream()) {
-                out.write(a.getString("body").getBytes(StandardCharsets.UTF_8));
-            }
-            int code = c.getResponseCode();
-            result.put("status", code);
-            if (code >= 400) {
-                InputStream err = c.getErrorStream();
-                result.put("body", err == null ? "" : new String(readAll(err), StandardCharsets.UTF_8));
-                return result;
-            }
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
-                StringBuilder batch = new StringBuilder();
-                long last = System.currentTimeMillis();
-                String line;
-                while ((line = r.readLine()) != null) {
-                    batch.append(line).append('\n');
-                    long now = System.currentTimeMillis();
-                    if (now - last > 50 || batch.length() > 8000) {
-                        sendChunk(sid, batch.toString());
-                        batch.setLength(0);
-                        last = now;
-                    }
-                }
-                if (batch.length() > 0) sendChunk(sid, batch.toString());
-            } catch (IOException e) {
-                if (!active.containsKey(sid)) return result.put("cancelled", true);
-                throw e;
-            }
-            return result;
-        } finally {
-            active.remove(sid);
-        }
-    }
-
-    private void sendChunk(String sid, String data) throws Exception {
-        event(new JSONObject().put("type", "stream").put("sid", sid).put("data", data));
-    }
-
-    private static byte[] readAll(InputStream in) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-        return out.toByteArray();
-    }
-
     // ------------------------------------------------ slow calls, answered through window.__bridgeReply(id)
 
     @JavascriptInterface
@@ -356,15 +294,6 @@ class Bridge {
                             core.progress(a.getString("key"), 0, 0, "error", String.valueOf(e.getMessage()));
                         }
                         break;
-                    case "httpStream":
-                        resolve(id, httpStream(a), null);
-                        break;
-                    case "cancelStream": {
-                        HttpURLConnection c = active.remove(a.getString("sid"));
-                        if (c != null) c.disconnect();
-                        resolve(id, true, null);
-                        break;
-                    }
                     case "httpGet":
                         resolve(id, new String(Core.get(a.getString("url"), 3_000_000), StandardCharsets.UTF_8), null);
                         break;
