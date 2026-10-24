@@ -175,6 +175,8 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 .list .item .meta { font-size: 13px; color: var(--dim); white-space: nowrap; }
 .list .item .actions { display: flex; gap: 4px; flex-shrink: 0; }
 .list .item .actions button { min-height: 34px; padding: 4px 12px; font-size: 14px; }
+.list .maker { padding: 14px 16px 4px; font-size: 13px; color: var(--dim); font-weight: 500; }
+.list .maker + .item { border-top: 0; }
 .ready { color: var(--accent); font-size: 13px; font-weight: 500; }
 .progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 8px; } .progress div { height: 100%; background: var(--accent); transition: width .4s; }
 .switch { position: relative; width: 52px; height: 32px; flex-shrink: 0; }
@@ -281,19 +283,36 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 "use strict";
 // ================================================================ settings and models
 
+// Free models that fit on a phone, from well known makers. Grok (xAI) and DeepSeek are
+// left out by choice. tools: false means the model only chats: it can't search, build
+// pages or use the phone, because its chat format has no way to call tools.
 const CATALOG = {
-  quick: {label: "Quick", detail: "Qwen 2.5, 1.5B", repo: "bartowski/Qwen2.5-1.5B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 1.0,
+  general: {label: "General", maker: "Alibaba", detail: "Qwen 3, 4B", repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF", quant: "Q4_K_M", size_gb: 2.5,
+            about: "The best all rounder for a phone, and the best at using tools. Start with this one."},
+  quick: {label: "Quick", maker: "Alibaba", detail: "Qwen 2.5, 1.5B", repo: "bartowski/Qwen2.5-1.5B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 1.0,
           about: "Fastest and lightest on the battery. Fine for chat and simple jobs."},
-  general: {label: "General", detail: "Qwen 3, 4B", repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF", quant: "Q4_K_M", size_gb: 2.5,
-            about: "The best all rounder for a phone, and good at using tools. Start with this one."},
-  gemma: {label: "Gemma", detail: "Google Gemma 3, 4B", repo: "unsloth/gemma-3-4b-it-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
-          about: "Google's free model, a smaller relative of Gemini. Good at writing and other languages. Chat only, no web search."},
-  llama: {label: "Llama", detail: "Meta Llama 3.2, 3B", repo: "bartowski/Llama-3.2-3B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 2.0,
-          about: "Meta's free model. Quick and friendly for everyday chat."},
-  phi: {label: "Phi", detail: "Microsoft Phi 4 mini, 3.8B", repo: "bartowski/microsoft_Phi-4-mini-instruct-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
-        about: "Microsoft's free model. Good at maths and step by step reasoning. Chat only, no web search."},
-  coder: {label: "Coder", detail: "Qwen 2.5 Coder, 7B", repo: "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 4.7,
+  qwen3small: {label: "Qwen 3 small", maker: "Alibaba", detail: "Qwen 3, 1.7B", repo: "unsloth/Qwen3-1.7B-GGUF", quant: "Q4_K_M", size_gb: 1.1,
+               about: "Small but thinks before it answers. Good for quick questions that need a bit of reasoning."},
+  coder: {label: "Coder", maker: "Alibaba", detail: "Qwen 2.5 Coder, 7B", repo: "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 4.7,
           about: "Best at writing programs. Slower and uses more battery."},
+  gemma: {label: "Gemma", maker: "Google", detail: "Gemma 3, 4B", repo: "unsloth/gemma-3-4b-it-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
+          about: "A smaller relative of Gemini. Good at writing and other languages. Chat only."},
+  gemmasmall: {label: "Gemma small", maker: "Google", detail: "Gemma 3, 1B", repo: "unsloth/gemma-3-1b-it-GGUF", quant: "Q4_K_M", size_gb: 0.8, tools: false,
+               about: "Tiny and very fast. Simple chat only."},
+  gemman: {label: "Gemma 3n", maker: "Google", detail: "Gemma 3n, E2B", repo: "unsloth/gemma-3n-E2B-it-GGUF", quant: "Q4_K_M", size_gb: 3.0, tools: false,
+           about: "Google's model built for phones. Strong for its speed. Chat only."},
+  llama: {label: "Llama", maker: "Meta", detail: "Llama 3.2, 3B", repo: "bartowski/Llama-3.2-3B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 2.0,
+          about: "Quick and friendly for everyday chat."},
+  llamasmall: {label: "Llama small", maker: "Meta", detail: "Llama 3.2, 1B", repo: "bartowski/Llama-3.2-1B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 0.8,
+               about: "Tiny and very fast. Simple chat and short answers."},
+  phi: {label: "Phi", maker: "Microsoft", detail: "Phi 4 mini, 3.8B", repo: "bartowski/microsoft_Phi-4-mini-instruct-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
+        about: "Good at maths and step by step reasoning. Chat only."},
+  mistral: {label: "Mistral", maker: "Mistral AI", detail: "Mistral 7B v0.3", repo: "bartowski/Mistral-7B-Instruct-v0.3-GGUF", quant: "Q4_K_M", size_gb: 4.4,
+            about: "From the French company Mistral. Good general writing. Slower, wants plenty of memory."},
+  granite: {label: "Granite", maker: "IBM", detail: "Granite 3.3, 2B", repo: "ibm-granite/granite-3.3-2b-instruct-GGUF", quant: "Q4_K_M", size_gb: 1.5,
+            about: "Made for business writing and summaries. Careful and plain."},
+  smol: {label: "SmolLM", maker: "Hugging Face", detail: "SmolLM3, 3B", repo: "unsloth/SmolLM3-3B-GGUF", quant: "Q4_K_M", size_gb: 1.9, tools: false,
+         about: "Fully open, made by Hugging Face. Good all round chat for its size. Chat only."},
 };
 const STYLES = {
   normal: "", concise: "Keep answers as short as possible. Skip preamble and summaries.",
@@ -1020,7 +1039,9 @@ function onBridgeEvent(ev) {
 }
 function drawModels() {
   const files = JSON.parse(B.models() || "{}"), ramGb = B.memory() / 1e9;
+  let lastMaker = "";
   $("modelsList").innerHTML = Object.entries(CATALOG).map(([k, m]) => {
+    const heading = m.maker !== lastMaker ? `<div class="maker">${esc(m.maker)}</div>` : ""; lastMaker = m.maker;
     const dl = downloads[k], ready = !!files[k];
     let action;
     if (ready) action = `<span class="ready">Ready</span><button class="icon-btn" onclick="delModel('${k}')" aria-label="Delete">${icon("trash", "width:19px;height:19px")}</button>`;
@@ -1029,11 +1050,11 @@ function drawModels() {
     const bar = dl && !dl.status && dl.total ? `<div class="progress"><div style="width:${100 * dl.done / dl.total}%"></div></div>` : "";
     const err = dl && dl.status === "error" ? `<small class="note">${esc(dl.error)}</small>` : "";
     const warn = m.size_gb * 2.2 > ramGb ? `<small class="note">May be too big for this phone's memory.</small>` : "";
-    return `<div class="item card"><span class="grow">${m.label} <span class="meta">${m.size_gb} GB</span><small>${m.about}</small>${warn}${err}${bar}</span><span class="actions">${action}</span></div>`;
+    return `${heading}<div class="item card"><span class="grow">${m.label} <span class="meta">${m.detail} \u00b7 ${m.size_gb} GB</span><small>${m.about}</small>${warn}${err}${bar}</span><span class="actions">${action}</span></div>`;
   }).join("");
 }
 function showModels() {
-  sheet(`<h2>Models</h2><p class="sub">Download once over Wi-Fi, then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.</p>
+  sheet(`<h2>Models</h2><p class="sub">Free models from different makers. Download once over Wi-Fi, then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.</p>
     <div class="list" id="modelsList"></div><div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
   drawModels();
 }
