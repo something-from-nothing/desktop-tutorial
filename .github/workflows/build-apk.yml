@@ -147,3 +147,19 @@ jobs:
           git add DeskAgent.apk
           git commit -m "APK built from ${{ github.sha }}"
           git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk
+
+      - name: Save the complete APK in pieces
+        # Git can't hold files over 100 MB, so the complete APK is cut into 90 MB pieces
+        # on the apk-complete branch. Join them back in order to get the APK.
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir pieces && cd pieces
+          split -b 90m -d -a 2 ../DeskAgent-Complete.apk DeskAgent-Complete.apk.part
+          sha256sum ../DeskAgent-Complete.apk | cut -d' ' -f1 > DeskAgent-Complete.apk.sha256
+          ls -la
+          git init -b apk-complete
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Complete APK built from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk-complete
