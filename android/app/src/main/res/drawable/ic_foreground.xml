@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A monitor with a cursor, drawn in the middle 66dp safe zone of the 108dp icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M32,36h44a4,4 0 0 1 4,4v26a4,4 0 0 1 -4,4h-44a4,4 0 0 1 -4,-4v-26a4,4 0 0 1 4,-4z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M48,70h12v6h-12z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M42,76h24a2,2 0 0 1 0,4h-24a2,2 0 0 1 0,-4z" />
+    <path android:fillColor="#14213D" android:pathData="M50,42v17l5,-4 3.5,7 3.5,-1.8 -3.5,-7 6.4,-0.8z" />
+</vector>

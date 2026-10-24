@@ -1,0 +1,100 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", ".github/workflows/build-apk.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build the llama.cpp engine for Android (arm64)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo ggml-org/llama.cpp --json tagName -q .tagName)
+          echo "Using llama.cpp $tag"
+          git clone --depth 1 --branch "$tag" https://github.com/ggml-org/llama.cpp llama.cpp
+          # Static build with no OpenMP, so the engine is one file that needs nothing else
+          # on the phone. dotprod and fp16 suit the Pixel 9's Tensor G4 and every recent phone.
+          cmake -S llama.cpp -B llama-build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF \
+            -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 -DLLAMA_CURL=OFF \
+            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+          cmake --build llama-build --target llama-server -j 4
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp llama-build/bin/llama-server android/app/src/main/jniLibs/arm64-v8a/libllamaserver.so
+          file android/app/src/main/jniLibs/arm64-v8a/libllamaserver.so
+          echo "Libraries it needs on the phone:"
+          "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d android/app/src/main/jniLibs/arm64-v8a/libllamaserver.so | grep NEEDED
+          if "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d android/app/src/main/jniLibs/arm64-v8a/libllamaserver.so \
+               | grep NEEDED | grep -vE 'lib(c|m|dl|log)\.so'; then
+            echo "The engine needs a library that isn't on every phone"; exit 1
+          fi
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Set up the signing key
+        # Uses the key saved in the repo's secrets (ANDROID_KEYSTORE_BASE64 and
+        # ANDROID_KEY_PASSWORD) so every build can update the last one. Without them it
+        # makes a one off key: that APK works, but the next one won't install over it.
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          store="$RUNNER_TEMP/deskagent.keystore"
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$store"
+            pass="$KEY_PASSWORD"
+          else
+            echo "::warning::No signing key in the repo secrets, so this APK uses a one off key."
+            pass=$(openssl rand -base64 24)
+            keytool -genkeypair -storetype PKCS12 -keystore "$store" -alias deskagent -keyalg RSA -keysize 3072 \
+              -validity 10950 -storepass "$pass" -keypass "$pass" -dname "CN=Desk Agent Mobile, C=GB"
+          fi
+          echo "::add-mask::$pass"
+          echo "SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
+          echo "SIGNING_PASSWORD=$pass" >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        run: gradle -p android assembleRelease --no-daemon
+
+      - name: Check the signature
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify --print-certs "$apk"
+          cp "$apk" DeskAgent.apk
+          ls -la DeskAgent.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskAgent-APK
+          path: DeskAgent.apk
+
+      - name: Publish the APK to the apk branch
+        # Gives a permanent download link: github.com/<owner>/<repo>/raw/apk/DeskAgent.apk
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir publish && cp DeskAgent.apk publish/ && cd publish
+          git init -b apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DeskAgent.apk
+          git commit -m "APK built from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" apk

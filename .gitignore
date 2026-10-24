@@ -2,8 +2,14 @@
 *.spec
 .venv/
 __pycache__/
+android/.gradle/
+android/app/build/
+android/app/src/main/jniLibs/
+android/build/
 build/
 dist/
 downloads/
+llama-build/
+llama.cpp/
 llama.zip
 llama_tmp/

@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Desk Agent</title>
+<!--
+  Desk Agent Mobile: your own AI on your phone. Everything runs on the phone through
+  the llama.cpp engine the app starts in the background. This page is the whole app:
+  chats, projects, agents, the side panel for finished work, models and memory. The
+  Android side (MainActivity.java) only runs the engine, downloads models, stores
+  files and fetches web pages for it, through window.Android.
+-->
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --side: #14213d; --side-text: #dfe6f3; --side-dim: #8d9bb5; --side-hover: #1f2f52;
+  --text: #1b2230; --dim: #667085; --line: #e3e7ee; --accent: #0f766e; --accent-soft: #e0f2ef; --user: #eef2ff;
+  --code: #0f172a; --code-text: #e2e8f0; --warn: #b42318; --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1420; --panel: #161c2b; --side: #0a0f1a; --side-hover: #1a2337; --text: #e6e9ef; --dim: #98a2b3;
+          --line: #263049; --accent: #2dd4bf; --accent-soft: #123b38; --user: #1c2540; --code: #070b14; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body { margin: 0; font: 16px/1.55 system-ui, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); display: flex; overflow: hidden;
+       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 10px; padding: 8px 14px; min-height: 40px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.ghost { border-color: transparent; background: transparent; }
+button:disabled { opacity: .5; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; max-width: 100%; }
+a { color: var(--accent); }
+
+#side { width: 290px; max-width: 86vw; background: var(--side); color: var(--side-text); display: flex; flex-direction: column; flex-shrink: 0; z-index: 30; }
+@media (max-width: 899px) {
+  #side { position: fixed; top: 0; bottom: 0; left: 0; transform: translateX(-102%); transition: transform .22s ease; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  body.drawer #side { transform: none; box-shadow: 0 0 40px #0008; }
+  body.drawer #shade { display: block; }
+}
+@media (min-width: 900px) { #menuBtn { display: none; } }
+#shade { display: none; position: fixed; inset: 0; background: #0006; z-index: 25; }
+#side .brand { display: flex; align-items: center; gap: 10px; padding: 16px; font-weight: 600; font-size: 18px; }
+#side .brand svg { width: 30px; height: 30px; }
+#side .newbtn { margin: 0 12px 10px; background: var(--accent); color: #fff; border: 0; font-weight: 600; }
+#side input.search { margin: 0 12px 8px; background: var(--side-hover); border-color: transparent; color: var(--side-text); }
+#side .section { padding: 10px 16px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--side-dim); display: flex; justify-content: space-between; align-items: center; }
+#side .section button { color: var(--side-dim); background: none; border: 0; padding: 0 8px; min-height: 30px; font-size: 22px; line-height: 1; }
+#side .list { overflow-y: auto; flex: 1; padding-bottom: 8px; }
+#side .item { padding: 10px 16px; margin: 1px 8px; border-radius: 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; display: flex; justify-content: space-between; gap: 6px; }
+#side .item.active { background: var(--side-hover); }
+#side .item .x { color: var(--side-dim); padding: 0 4px; }
+#side .foot { border-top: 1px solid #ffffff14; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+#side .foot button { background: var(--side-hover); color: var(--side-text); border: 0; font-size: 14px; }
+#side .stats { grid-column: 1 / -1; font-size: 12px; color: var(--side-dim); text-align: center; padding-top: 4px; }
+
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+#top { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+#top .icon { font-size: 22px; padding: 4px 10px; }
+#title { font-weight: 600; font-size: 17px; border: 1px solid transparent; background: transparent; flex: 1; min-width: 0; padding: 6px 8px; text-overflow: ellipsis; }
+#status { font-size: 13px; color: var(--dim); padding: 2px 14px 0; min-height: 20px; }
+
+#chat { flex: 1; overflow-y: auto; padding: 4px 0 16px; -webkit-overflow-scrolling: touch; }
+.msg { max-width: 820px; margin: 12px auto; padding: 0 14px; }
+.msg.user { text-align: right; }
+.msg.user .bubble { background: var(--user); border-radius: var(--radius); padding: 10px 14px; display: inline-block; max-width: 88%; white-space: pre-wrap; text-align: left; word-wrap: break-word; }
+.msg .actions { margin-top: 4px; display: flex; gap: 6px; }
+.msg.user .actions { justify-content: flex-end; }
+.msg .actions button { padding: 2px 10px; min-height: 30px; font-size: 13px; color: var(--dim); }
+.chip { display: inline-block; font-size: 12px; background: var(--accent-soft); color: var(--accent); border-radius: 20px; padding: 2px 10px; margin: 4px 4px 0 0; }
+.md { word-wrap: break-word; }
+.md p { margin: .5em 0; } .md h1, .md h2, .md h3 { margin: .8em 0 .3em; line-height: 1.25; } .md h1 { font-size: 1.3em; } .md h2 { font-size: 1.15em; } .md h3 { font-size: 1.05em; }
+.md ul, .md ol { padding-left: 1.4em; margin: .4em 0; } .md blockquote { border-left: 3px solid var(--line); margin: .5em 0; padding-left: 12px; color: var(--dim); }
+.md table { border-collapse: collapse; margin: .6em 0; display: block; overflow-x: auto; } .md th, .md td { border: 1px solid var(--line); padding: 4px 10px; }
+.md code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; font-family: ui-monospace, monospace; font-size: .9em; }
+.codeblock { background: var(--code); color: var(--code-text); border-radius: 10px; margin: .6em 0; overflow: hidden; }
+.codeblock .bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 10px; background: #ffffff10; gap: 6px; }
+.codeblock .bar button { background: transparent; color: var(--code-text); border: 1px solid #ffffff30; padding: 1px 10px; min-height: 28px; font-size: 12px; }
+.codeblock pre { margin: 0; padding: 12px; overflow-x: auto; font-size: 13px; } .codeblock code { background: none; padding: 0; color: inherit; }
+.tool { font-size: 14px; border: 1px solid var(--line); border-radius: 10px; margin: 6px 0; background: var(--panel); }
+.tool summary { cursor: pointer; padding: 8px 10px; color: var(--dim); list-style: none; }
+.tool summary::before { content: "\25B8  "; } .tool[open] summary::before { content: "\25BE  "; }
+.tool pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--line); white-space: pre-wrap; max-height: 240px; overflow: auto; font-size: 12px; }
+.agentbox { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 8px 0; }
+.agentbox .agentname { font-size: 13px; font-weight: 600; color: var(--accent); }
+.thinking { font-size: 14px; color: var(--dim); border: 1px dashed var(--line); border-radius: 10px; margin: 6px 0; }
+.thinking summary { cursor: pointer; padding: 8px 10px; } .thinking div { padding: 0 12px 8px; white-space: pre-wrap; }
+.artifact-card { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 12px 14px; margin: 8px 0; cursor: pointer; }
+.artifact-card b { display: block; }
+.error { color: var(--warn); }
+.cursor::after { content: "\2588"; animation: blink 1s steps(1) infinite; color: var(--accent); } @keyframes blink { 50% { opacity: 0; } }
+#empty { max-width: 560px; margin: 8vh auto 0; text-align: center; color: var(--dim); padding: 0 18px; }
+#empty h1 { color: var(--text); font-weight: 600; font-size: 24px; }
+#empty .ideas { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 16px; }
+@media (min-width: 560px) { #empty .ideas { grid-template-columns: 1fr 1fr; } }
+#empty .ideas button { text-align: left; font-size: 15px; }
+
+#composer { width: 100%; max-width: 860px; margin: 0 auto; padding: 0 10px 10px; }
+#composer .opts { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; scrollbar-width: none; }
+#composer .opts select { font-size: 13px; padding: 5px 8px; border-radius: 20px; flex-shrink: 0; }
+#composer .opts label { font-size: 13px; display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 20px; padding: 0 10px; background: var(--panel); white-space: nowrap; flex-shrink: 0; }
+#composer .box { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 6px; display: flex; align-items: flex-end; gap: 4px; }
+#composer textarea { flex: 1; border: 0; resize: none; min-height: 40px; max-height: 180px; padding: 8px 6px; outline: none; background: transparent; }
+#composer .box button { border-radius: 50%; width: 42px; height: 42px; padding: 0; flex-shrink: 0; font-size: 18px; }
+#attachments .chip button { border: 0; background: none; padding: 0 0 0 6px; min-height: 0; color: inherit; }
+
+#panel { position: fixed; inset: 0; z-index: 40; background: var(--panel); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+#panel.open { display: flex; }
+#panel .head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+#panel .head b { flex: 1; min-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#panel .head button { padding: 4px 10px; min-height: 34px; font-size: 14px; }
+#panel .tabs button.on { background: var(--accent-soft); border-color: var(--accent); }
+#panel .body { flex: 1; overflow: auto; }
+#panel iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+#panel .md { padding: 14px 18px; }
+
+.modal-bg { position: fixed; inset: 0; background: #0008; display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+@media (min-width: 700px) { .modal-bg { align-items: center; } }
+.modal { background: var(--panel); border-radius: 18px 18px 0 0; width: min(640px, 100vw); max-height: 90vh; overflow: auto; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); }
+@media (min-width: 700px) { .modal { border-radius: 16px; } }
+.modal h2 { margin: 0 0 10px; font-size: 20px; }
+.modal .field { margin: 10px 0; } .modal .field label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 4px; }
+.modal .field input[type=text], .modal .field textarea, .modal .field select { width: 100%; }
+.modal .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; }
+.card .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card small { color: var(--dim); }
+.bar-outer { height: 6px; background: var(--line); border-radius: 4px; overflow: hidden; margin-top: 8px; } .bar-inner { height: 100%; background: var(--accent); transition: width .4s; }
+.checks label { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.ok { color: #12805c; }
+</style>
+</head>
+<body>
+<div id="shade" onclick="closeDrawer()"></div>
+<nav id="side">
+  <div class="brand">
+    <svg viewBox="0 0 32 32"><rect x="1" y="1" width="30" height="30" rx="8" fill="#0f766e"/><rect x="6" y="8" width="20" height="13" rx="2" fill="#fff"/><rect x="13" y="21" width="6" height="3" fill="#fff"/><rect x="10" y="24" width="12" height="2" rx="1" fill="#fff"/><path d="M14 11v7l2-1.6 1.4 2.8 1.4-.7-1.4-2.8 2.6-.3z" fill="#14213d"/></svg>
+    Desk Agent
+  </div>
+  <button class="newbtn" onclick="newChat()">+ New chat</button>
+  <input class="search" id="search" placeholder="Search chats" oninput="renderSide()">
+  <div class="list">
+    <div class="section">Projects <button title="New project" onclick="editProject()">+</button></div>
+    <div id="projects"></div>
+    <div class="section"><span id="chatsLabel">Chats</span></div>
+    <div id="chats"></div>
+  </div>
+  <div class="foot">
+    <button onclick="closeDrawer(); showAgents()">Agents</button>
+    <button onclick="closeDrawer(); showModels()">Models</button>
+    <button onclick="closeDrawer(); showMemory()">Memory</button>
+    <button onclick="closeDrawer(); showSettings()">Settings</button>
+    <div class="stats" id="stats"></div>
+  </div>
+</nav>
+
+<main id="main">
+  <div id="top">
+    <button class="ghost icon" id="menuBtn" onclick="openDrawer()" aria-label="Menu">&#9776;</button>
+    <input id="title" value="New chat" onchange="renameChat(this.value)" aria-label="Chat title">
+    <button class="ghost icon" onclick="newChat()" aria-label="New chat">&#9998;</button>
+  </div>
+  <div id="status"></div>
+  <div id="chat"></div>
+  <div id="composer">
+    <div class="opts">
+      <select id="agentSel" onchange="setChatField('agent', this.value)" aria-label="Agent"></select>
+      <select id="modelSel" onchange="saveSettings({model: this.value})" aria-label="Model"></select>
+      <select id="styleSel" onchange="saveSettings({style: this.value})" aria-label="Style"></select>
+      <label><input type="checkbox" id="think" onchange="saveSettings({think: this.checked})"> Think first</label>
+    </div>
+    <div id="attachments"></div>
+    <div class="box">
+      <button class="ghost" onclick="document.getElementById('file').click()" aria-label="Attach files">&#128206;</button>
+      <input type="file" id="file" multiple hidden onchange="attach(this.files)">
+      <textarea id="input" rows="1" placeholder="Ask anything" onkeydown="keydown(event)" oninput="autosize()"></textarea>
+      <button id="stopBtn" onclick="stopJob()" hidden aria-label="Stop">&#9632;</button>
+      <button id="sendBtn" class="primary" onclick="send()" aria-label="Send">&#10148;</button>
+    </div>
+  </div>
+</main>
+
+<aside id="panel">
+  <div class="head">
+    <b id="artTitle"></b>
+    <button class="ghost" onclick="closePanel()" aria-label="Close">&#10005;</button>
+    <span class="tabs"><button id="tabPreview" onclick="artTab('preview')">Preview</button> <button id="tabCode" onclick="artTab('code')">Code</button></span>
+    <button onclick="copyText(currentArt.content)">Copy</button>
+    <button onclick="saveArt()">Save</button>
+  </div>
+  <div class="body" id="artBody"></div>
+</aside>
+
+<script>
+"use strict";
+// ================================================================ settings and models
+
+const CATALOG = {
+  quick: {label: "Quick", detail: "Qwen 2.5, 1.5B", repo: "bartowski/Qwen2.5-1.5B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 1.0,
+          about: "Fastest and lightest on the battery. Fine for chat and simple jobs."},
+  general: {label: "General", detail: "Qwen 3, 4B", repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF", quant: "Q4_K_M", size_gb: 2.5,
+            about: "The best all rounder for a phone, and good at using tools. Start with this one."},
+  coder: {label: "Coder", detail: "Qwen 2.5 Coder, 7B", repo: "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 4.7,
+          about: "Best at writing programs. Slower and uses more battery."},
+};
+const STYLES = {
+  normal: "", concise: "Keep answers as short as possible. Skip preamble and summaries.",
+  explanatory: "Explain your reasoning and teach the ideas behind the answer, with examples.",
+  formal: "Write in a clear, professional, formal tone.", friendly: "Write in a warm, relaxed, conversational tone.",
+};
+// Built in agents. Tool groups: web, artifacts, delegate.
+const BUILTIN_AGENTS = {
+  assistant: {name: "Assistant", model: "auto", tools: ["web", "artifacts", "delegate"],
+    instructions: "You are a capable general assistant. Handle the job yourself, or hand a self contained part to a specialist agent with ask_agent when that will do it better."},
+  coder: {name: "Coder", model: "coder", tools: ["artifacts"],
+    instructions: "You are a careful programmer. Plan briefly and write clean, complete, working code with short comments. For a web page or small app, show it with create_artifact so the user can try it."},
+  researcher: {name: "Researcher", model: "general", tools: ["web"],
+    instructions: "You research questions. Search the web, read the most relevant pages, compare sources, and give a clear answer with the links you used. Say when sources disagree or you are unsure."},
+  writer: {name: "Writer", model: "general", tools: ["artifacts"],
+    instructions: "You write and edit: emails, posts, letters, reports, stories. Match the reader and purpose, keep it plain and human, and put long finished pieces in a markdown artifact."},
+  planner: {name: "Planner", model: "general", tools: ["delegate"],
+    instructions: "You break big jobs into clear steps, then hand each step to the right agent with ask_agent and pull their results together into one answer."},
+};
+const DEFAULT_SETTINGS = {model: "auto", style: "normal", think: false, context: 8192, learn: true, max_steps: 12};
+const CODE_WORDS = /\b(code|coding|program|script|python|javascript|html|css|function|bug|debug|compile|app|website|game|sql|class|error|traceback|refactor|api)\b/i;
+const ACTION_WORDS = /\b(open|make|create|write|build|run|find|search|save|install|type|fix|file|folder)\b/i;
+
+// ================================================================ the bridge to Android
+
+// In the app, window.Android is the Java bridge. Opened in a normal browser (for
+// testing), a stand in keeps data in localStorage and talks to a llama-server whose
+// port is given as ?engine=PORT.
+const pending = {}; let seq = 0;
+window.__bridgeReply = raw => { const m = JSON.parse(raw), p = pending[m.id]; delete pending[m.id]; if (p) m.error ? p.reject(new Error(m.error)) : p.resolve(m.value); };
+window.__bridgeEvent = raw => onBridgeEvent(JSON.parse(raw));
+const B = window.Android || (() => {
+  const enginePort = +(new URLSearchParams(location.search).get("engine") || 0);
+  const ls = k => localStorage.getItem("da:" + k);
+  return {
+    read: p => ls(p), write: (p, t) => (localStorage.setItem("da:" + p, t), true),
+    list: dir => JSON.stringify(Object.keys(localStorage).filter(k => k.startsWith("da:" + dir + "/")).map(k => k.slice(dir.length + 4))),
+    remove: p => (localStorage.removeItem("da:" + p), true),
+    models: () => ls("_models") || "{}", deleteModel: k => { const m = JSON.parse(ls("_models") || "{}"); delete m[k]; localStorage.setItem("da:_models", JSON.stringify(m)); return true; },
+    cancelDownload: () => {}, freeSpace: () => 64e9, memory: () => 12e9, loaded: () => null,
+    call: async (id, method, args) => {
+      const a = JSON.parse(args), reply = (value, error) => setTimeout(() => window.__bridgeReply(JSON.stringify({id, value, error})), 10);
+      try {
+        if (method === "startEngine") return reply(enginePort);
+        if (method === "httpGet") return reply(await (await fetch(a.url)).text());
+        if (method === "saveDownload") return reply("Downloads/" + a.name);
+        if (method === "download") { reply(true); const m = JSON.parse(ls("_models") || "{}"); m[a.key] = 1e9; localStorage.setItem("da:_models", JSON.stringify(m));
+          setTimeout(() => window.__bridgeEvent(JSON.stringify({type: "download", key: a.key, done: 1e9, total: 1e9, status: "done"})), 300); return; }
+        reply(true);
+      } catch (e) { reply(null, String(e.message || e)); }
+    },
+  };
+})();
+function bridge(method, args) {
+  return new Promise((resolve, reject) => { const id = "r" + (++seq); pending[id] = {resolve, reject}; B.call(id, method, JSON.stringify(args || {})); });
+}
+
+// ================================================================ saved data
+
+const readJSON = (path, fallback) => { try { const t = B.read(path); return t ? JSON.parse(t) : fallback; } catch (e) { return fallback; } };
+const writeJSON = (path, data) => B.write(path, JSON.stringify(data));
+const uid = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4);
+const now = () => new Date().toISOString().slice(0, 19);
+
+let settings = {...DEFAULT_SETTINGS, ...readJSON("settings.json", {})};
+function saveSettings(changes) { Object.assign(settings, changes); writeJSON("settings.json", settings); }
+function customAgents() { return readJSON("agents.json", {}); }
+function allAgents() { return {...BUILTIN_AGENTS, ...customAgents()}; }
+function readMemory() { return (B.read("memory.txt") || "").trim(); }
+function stats() { return readJSON("stats.json", {first_used: now().slice(0, 10), jobs: 0, words_written: 0, models: {}}); }
+function bumpStats(fn) { const s = stats(); fn(s); writeJSON("stats.json", s); }
+function installed() {
+  const files = JSON.parse(B.models() || "{}");
+  return Object.keys(CATALOG).filter(k => files[k]);
+}
+
+const Store = {
+  listChats() {
+    return JSON.parse(B.list("chats")).map(n => readJSON("chats/" + n, null)).filter(Boolean)
+      .map(c => ({id: c.id, title: c.title, project: c.project, agent: c.agent, updated: c.updated}))
+      .sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+  },
+  getChat: id => readJSON(`chats/${id}.json`, null),
+  saveChat(c) { c.updated = now(); writeJSON(`chats/${c.id}.json`, c); },
+  newChat(project, agent) { const c = {id: uid(), title: "New chat", project: project || null, agent: agent || "assistant", created: now(), messages: [], artifacts: []}; this.saveChat(c); return c; },
+  deleteChat: id => B.remove(`chats/${id}.json`),
+  listProjects() { return JSON.parse(B.list("projects")).map(n => readJSON("projects/" + n, null)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)); },
+  getProject: id => id ? readJSON(`projects/${id}.json`, null) : null,
+  saveProject: p => writeJSON(`projects/${p.id}.json`, p),
+  deleteProject(id) { B.remove(`projects/${id}.json`); for (const c of this.listChats()) if (c.project === id) { const full = this.getChat(c.id); full.project = null; this.saveChat(full); } },
+};
+
+// ================================================================ the AI engine
+
+let enginePort = 0, engineModel = null;
+async function loadModel(key) {
+  if (engineModel === key && enginePort) return enginePort;
+  setStatus(`Loading the ${CATALOG[key]?.label || key} model...`);
+  enginePort = await bridge("startEngine", {model: key, context: settings.context});
+  engineModel = key;
+  return enginePort;
+}
+
+// Streams one reply from the engine's OpenAI style chat API on 127.0.0.1.
+async function engineChat(messages, {tools, onText, signal, maxTokens = 2048} = {}) {
+  const body = {messages, stream: true, max_tokens: maxTokens, temperature: 0.4};
+  if (tools && tools.length) body.tools = tools;
+  const res = await fetch(`http://127.0.0.1:${enginePort}/v1/chat/completions`,
+    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), signal});
+  if (!res.ok) throw new Error(`The AI engine said: ${(await res.text()).slice(0, 300)}`);
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "", content = "", finish = null; const calls = {};
+  for (;;) {
+    let chunk;
+    try { chunk = await reader.read(); } catch (e) { if (signal && signal.aborted) { finish = "stopped"; break; } throw e; }
+    if (chunk.done) break;
+    buf += dec.decode(chunk.value, {stream: true});
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") continue;
+      const choice = JSON.parse(data).choices[0], delta = choice.delta || {};
+      if (delta.content) { content += delta.content; onText && onText(delta.content); }
+      for (const tc of delta.tool_calls || []) {
+        const slot = calls[tc.index || 0] ||= {id: "", name: "", arguments: ""};
+        slot.id = tc.id || slot.id;
+        slot.name += tc.function?.name || ""; slot.arguments += tc.function?.arguments || "";
+      }
+      finish = choice.finish_reason || finish;
+    }
+  }
+  const thoughts = [...content.matchAll(/<think>([\s\S]*?)(?:<\/think>|$)/g)].map(m => m[1].trim()).join("\n");
+  const message = {role: "assistant", content: content.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim()};
+  if (thoughts) message.thinking = thoughts;
+  const list = Object.keys(calls).sort((a, b) => a - b).map(k => calls[k]);
+  if (list.length) message.tool_calls = list.map(c => ({id: c.id || "call_" + uid(), type: "function", function: {name: c.name, arguments: c.arguments || "{}"}}));
+  return {message, finish};
+}
+
+// ================================================================ tools
+
+const tool = (name, description, properties, required) => ({type: "function", function: {name, description, parameters: {type: "object", properties, required}}});
+const TOOL_GROUPS = {
+  web: [
+    tool("web_search", "Search the web and get the top results with links.", {query: {type: "string"}}, ["query"]),
+    tool("read_webpage", "Fetch a web page and return its text.", {url: {type: "string"}}, ["url"]),
+  ],
+  artifacts: [
+    tool("create_artifact", "Show the user a finished piece of work full screen: a web page or small app (html), a drawing (svg), a document (markdown) or a code file (code). Send the complete content. Use the same title again to update it.",
+      {title: {type: "string"}, kind: {type: "string", enum: ["html", "svg", "markdown", "code"]}, language: {type: "string"}, content: {type: "string"}}, ["title", "kind", "content"]),
+  ],
+  delegate: [
+    tool("ask_agent", "Hand a self contained task to a specialist agent and get its answer back. Describe the task fully; the agent can't see this chat.",
+      {agent: {type: "string", description: "Agent id"}, task: {type: "string"}}, ["agent", "task"]),
+  ],
+};
+const GROUP_PROMPTS = {
+  web: "You can search the web and read pages. Say where information came from.",
+  artifacts: "Use create_artifact to show finished web pages, drawings, documents or code to the user.",
+  delegate: "Agents you can hand work to with ask_agent: {agents}.",
+};
+
+function pageText(raw) {
+  const doc = new DOMParser().parseFromString(raw, "text/html");
+  doc.querySelectorAll("script,style,noscript,svg,head,nav,footer").forEach(n => n.remove());
+  return (doc.body?.innerText || doc.body?.textContent || "").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim();
+}
+async function webSearch(query) {
+  const page = await bridge("httpGet", {url: "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query)});
+  const doc = new DOMParser().parseFromString(page, "text/html");
+  const out = [...doc.querySelectorAll("a.result__a")].slice(0, 8).map(a => {
+    let link = a.getAttribute("href") || "";
+    try { link = new URL(link, "https://duckduckgo.com").searchParams.get("uddg") || link; } catch (e) {}
+    return `${a.textContent.trim()}\n${link}`;
+  });
+  return out.join("\n\n") || "No results.";
+}
+
+// ================================================================ the agent
+
+const BASE_PROMPT = `You are {agent_name}, part of Desk Agent, an assistant running entirely on the user's own phone. Nothing they say leaves the phone, apart from web searches.
+Today is {today}.
+
+{instructions}
+
+{tools}Use a tool whenever it helps, one step at a time, and look at each result before the next step.
+Write in plain language and keep it readable on a phone screen. Use markdown for structure when it helps: headings, lists, tables and fenced code blocks with the language named.`;
+const THINK_PROMPT = "Before answering, think the problem through step by step inside <think></think> tags, then give your answer after the closing tag.";
+const LEARN_PROMPT = `You keep a short memory file about one user of an assistant app, so it gets more useful over time.
+
+Current memory:
+<memory>
+{memory}
+</memory>
+
+A conversation that just finished:
+<conversation>
+{transcript}
+</conversation>
+
+Rewrite the memory to include anything new and lasting worth knowing next time: who they are, their work, preferences, interests, how they like things done, and jobs they repeat.
+Leave out one off details, and anything secret such as passwords or card numbers.
+Reply with only the new memory as short bullet points, under 300 words. If nothing new was learned, reply with the memory unchanged.`;
+
+let job = null;  // {chatId, controller}
+
+function toolsFor(agent, allowDelegate = true) {
+  return (agent.tools || []).filter(g => g !== "delegate" || allowDelegate).flatMap(g => TOOL_GROUPS[g] || []);
+}
+function systemPrompt(agentId, agent, c, {style = "normal", think = false, allowDelegate = true} = {}) {
+  const others = Object.entries(allAgents()).filter(([k]) => k !== agentId).map(([k, a]) => `${k} (${a.name})`).join(", ");
+  const parts = (agent.tools || []).filter(g => GROUP_PROMPTS[g] && (g !== "delegate" || allowDelegate)).map(g => GROUP_PROMPTS[g].replace("{agents}", others));
+  let p = BASE_PROMPT.replace("{agent_name}", agent.name).replace("{today}", new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long", year: "numeric"}))
+    .replace("{instructions}", agent.instructions || "").replace("{tools}", parts.length ? parts.join("\n") + "\n" : "");
+  if (STYLES[style]) p += "\n\nStyle: " + STYLES[style];
+  if (think) p += "\n\n" + THINK_PROMPT;
+  const proj = c && Store.getProject(c.project);
+  if (proj) {
+    p += `\n\nThis chat is part of the project "${proj.name}".`;
+    if (proj.instructions) p += `\nProject instructions:\n${proj.instructions}`;
+    let budget = Math.floor(settings.context * 1.5);
+    for (const f of proj.files || []) { if (budget <= 0) break; const t = f.text.slice(0, budget); budget -= t.length; p += `\n\n<project_file name="${f.name}">\n${t}\n</project_file>`; }
+  }
+  const memory = settings.learn ? readMemory() : "";
+  if (memory) p += `\n\nWhat you have learned about this user from earlier conversations:\n${memory}`;
+  return p;
+}
+// The conversation as the model sees it, trimmed from the oldest end to fit.
+function modelMessages(messages, system) {
+  const out = messages.map(m => {
+    const m2 = {role: m.role, content: m.content || ""};
+    if (m.tool_calls) m2.tool_calls = m.tool_calls;
+    if (m.tool_call_id) m2.tool_call_id = m.tool_call_id;
+    if (m.role === "user" && m.attachments?.length) m2.content += m.attachments.map(a => `\n\n<attached_file name="${a.name}">\n${a.text}\n</attached_file>`).join("");
+    return m2;
+  });
+  const budget = Math.floor(settings.context * 2.6) - system.length;
+  let total = 0, start = out.length;
+  while (start > 0 && total + JSON.stringify(out[start - 1]).length < budget) total += JSON.stringify(out[--start]).length;
+  start = Math.min(start, out.length - 1);
+  while (start > 0 && out[start].role === "tool") start--;
+  return [{role: "system", content: system}, ...out.slice(start)];
+}
+function chooseModel(agent, text, first) {
+  const ready = installed();
+  if (!ready.length) throw new Error("No AI model is downloaded yet. Open Models to get one.");
+  const wanted = settings.model !== "auto" ? settings.model : agent.model || "auto";
+  if (wanted !== "auto") return ready.includes(wanted) ? [wanted, null] : [ready.includes("general") ? "general" : ready[0], `${wanted} isn't downloaded`];
+  if (CODE_WORDS.test(text) && ready.includes("coder")) return ["coder", "it looks like a coding job"];
+  if (first && text.split(/\s+/).length < 12 && !ACTION_WORDS.test(text) && ready.includes("quick")) return ["quick", "it's a short question"];
+  return [ready.includes("general") ? "general" : ready[0], null];
+}
+
+async function startJob(c, body) {
+  if (job) throw new Error("Already working on something. Wait for it to finish or press Stop.");
+  if (body.regenerate) {
+    while (c.messages.length && c.messages[c.messages.length - 1].role !== "user") c.messages.pop();
+    if (!c.messages.length) throw new Error("Nothing to regenerate.");
+  } else {
+    if (body.edit_index !== undefined) c.messages.splice(body.edit_index);
+    const m = {role: "user", content: (body.text || "").trim(), attachments: body.attachments || []};
+    if (!m.content && !m.attachments.length) throw new Error("Type a message first.");
+    c.messages.push(m);
+    if (c.title === "New chat") c.title = (m.content.split(/\s+/).slice(0, 7).join(" ") || m.attachments[0].name).slice(0, 60);
+  }
+  Store.saveChat(c);
+  job = {chatId: c.id, controller: new AbortController()};
+  runJob(c, body);
+}
+
+async function runJob(c, body) {
+  let model = null;
+  try {
+    const agentId = c.agent || "assistant", agent = allAgents()[agentId] || BUILTIN_AGENTS.assistant;
+    const lastUser = [...c.messages].reverse().find(m => m.role === "user");
+    const [m, reason] = chooseModel(agent, lastUser.content || "", c.messages.filter(x => x.role === "user").length === 1);
+    model = m;
+    if (reason) emit({type: "status", chat: c.id, text: `Using ${CATALOG[m]?.label || m} because ${reason}`});
+    await loadModel(m);
+    const system = systemPrompt(agentId, agent, c, {style: body.style, think: body.think});
+    await agentLoop(c, c.messages, system, toolsFor(agent), null);
+  } catch (e) {
+    if (!(job && job.controller.signal.aborted)) emit({type: "error", chat: c.id, text: e.message || String(e)});
+  } finally {
+    const stopped = job && job.controller.signal.aborted;
+    Store.saveChat(c);
+    job = null;
+    emit({type: "done", chat: c.id});
+    if (model) afterJob(c, model, stopped);
+  }
+}
+
+// One agent working until it answers. sub is the ask_agent call id for helper agents.
+async function agentLoop(c, messages, system, tools, sub) {
+  const steps = sub ? 8 : settings.max_steps;
+  for (let i = 0; i < steps; i++) {
+    if (job.controller.signal.aborted) return "Stopped by the user.";
+    emit({type: "assistant_start", chat: c.id, sub});
+    const {message, finish} = await engineChat(modelMessages(messages, system),
+      {tools, signal: job.controller.signal, onText: t => emit({type: "token", chat: c.id, sub, text: t})});
+    messages.push(message);
+    bumpStats(s => s.words_written = (s.words_written || 0) + (message.content || "").split(/\s+/).filter(Boolean).length);
+    if (!sub) Store.saveChat(c);
+    emit({type: "assistant_end", chat: c.id, sub, message});
+    const calls = message.tool_calls || [];
+    if (!calls.length) {
+      if (finish === "length") emit({type: "error", chat: c.id, text: "The reply was cut off. Say 'continue' for the rest."});
+      return message.content || "";
+    }
+    for (const call of calls) {
+      const [result, extra] = await runTool(c, call, sub);
+      messages.push({role: "tool", tool_call_id: call.id, content: result, ...extra});
+      if (!sub) Store.saveChat(c);
+    }
+  }
+  return "Stopped: too many steps.";
+}
+
+async function runTool(c, call, sub) {
+  const name = call.function.name;
+  let args;
+  try { args = JSON.parse(call.function.arguments || "{}"); } catch (e) { return [`ERROR: the arguments were not valid JSON: ${call.function.arguments.slice(0, 400)}`, {}]; }
+  const def = Object.values(TOOL_GROUPS).flat().find(t => t.function.name === name);
+  if (!def) return [`ERROR: there is no tool called ${name}.`, {}];
+  const missing = def.function.parameters.required.filter(k => typeof args[k] !== "string" || !args[k]);
+  if (missing.length) return [`ERROR: missing ${missing.join(", ")}.`, {}];
+  emit({type: "tool_call", chat: c.id, sub, id: call.id, name, args});
+  let result, extra = {};
+  try {
+    if (name === "web_search") result = await webSearch(args.query);
+    else if (name === "read_webpage") result = pageText(await bridge("httpGet", {url: args.url}));
+    else if (name === "create_artifact") [result, extra] = makeArtifact(c, args);
+    else if (name === "ask_agent") [result, extra] = await askAgent(c, call.id, args);
+  } catch (e) { result = `ERROR: ${e.message || e}`; }
+  if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
+  emit({type: "tool_result", chat: c.id, sub, id: call.id, name, result: result.slice(0, 3000)});
+  return [result, extra];
+}
+function makeArtifact(c, a) {
+  c.artifacts ||= [];
+  const old = c.artifacts.find(x => x.title === a.title);
+  const art = {id: old ? old.id : uid(), title: a.title, kind: a.kind, language: a.language || "", content: a.content, version: old ? old.version + 1 : 1};
+  if (old) c.artifacts[c.artifacts.indexOf(old)] = art; else c.artifacts.push(art);
+  emit({type: "artifact", chat: c.id, artifact: art});
+  return [`Shown to the user as '${a.title}' (version ${art.version}).`, {artifact: art.id}];
+}
+async function askAgent(c, callId, a) {
+  const agents = allAgents();
+  let id = a.agent.trim().toLowerCase();
+  if (!agents[id]) id = Object.keys(agents).find(k => agents[k].name.toLowerCase() === id);
+  if (!id) return [`ERROR: no agent called ${a.agent}. Choose from: ${Object.keys(agents).join(", ")}.`, {}];
+  const agent = agents[id];
+  emit({type: "agent_start", chat: c.id, id: callId, agent: agent.name});
+  const messages = [{role: "user", content: a.task}];
+  const answer = await agentLoop(c, messages, systemPrompt(id, agent, c, {allowDelegate: false}), toolsFor(agent, false), callId);
+  emit({type: "agent_end", chat: c.id, id: callId});
+  const log = messages.slice(1).map(m => ({role: m.role, content: (m.content || "").slice(0, 3000), tools: (m.tool_calls || []).map(t => t.function.name)}));
+  return [`${agent.name} replied:\n${answer}`, {agent: agent.name, agent_log: log}];
+}
+
+function afterJob(c, model, stopped) {
+  bumpStats(s => { s.jobs = (s.jobs || 0) + 1; s.models = s.models || {}; s.models[model] = (s.models[model] || 0) + 1; s.last_used = now(); });
+  renderStats();
+  if (!settings.learn || stopped) return;
+  const lines = c.messages.slice(-30).filter(m => (m.role === "user" || m.role === "assistant") && m.content).map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
+  const prompt = LEARN_PROMPT.replace("{memory}", readMemory() || "(empty)").replace("{transcript}", lines.join("\n").slice(-12000));
+  engineChat([{role: "user", content: prompt}], {maxTokens: 700}).then(({message, finish}) => {
+    if (finish === "stop" && message.content) B.write("memory.txt", message.content.trim() + "\n");
+  }).catch(() => {});
+}
+
+// ================================================================ the page
+
+let chat = null, project = null, attachments = [], live = null, currentArt = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+function setStatus(t) { $("status").textContent = t || ""; }
+function toast(t) { setStatus(t); setTimeout(() => { if ($("status").textContent === t) setStatus(""); }, 5000); }
+function openDrawer() { document.body.classList.add("drawer"); }
+function closeDrawer() { document.body.classList.remove("drawer"); }
+
+// Android's back button: close whatever is on top first.
+window.onBack = () => {
+  const m = document.querySelector(".modal-bg");
+  if (m) { m.remove(); return true; }
+  if ($("panel").classList.contains("open")) { closePanel(); return true; }
+  if (document.body.classList.contains("drawer")) { closeDrawer(); return true; }
+  return false;
+};
+
+function md(src) {
+  const blocks = [];
+  src = String(src || "").replace(/```([\w+-]*)[^\n]*\n([\s\S]*?)(```|$)/g, (_, lang, code) => { blocks.push({lang, code: code.replace(/\n$/, "")}); return `\u0000${blocks.length - 1}\u0000`; });
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2">$2</a>');
+  const lines = src.split("\n"); let out = "", i = 0;
+  while (i < lines.length) {
+    const line = lines[i], block = line.match(/^\u0000(\d+)\u0000$/);
+    if (block) { const b = blocks[+block[1]]; out += codeBlock(b.code, b.lang); i++; continue; }
+    if (/^#{1,3} /.test(line)) { const n = line.match(/^#+/)[0].length; out += `<h${n}>${inline(line.slice(n + 1))}</h${n}>`; i++; continue; }
+    if (/^\s*[-*] /.test(line)) { out += "<ul>"; while (i < lines.length && /^\s*[-*] /.test(lines[i])) out += `<li>${inline(lines[i++].replace(/^\s*[-*] /, ""))}</li>`; out += "</ul>"; continue; }
+    if (/^\s*\d+[.)] /.test(line)) { out += "<ol>"; while (i < lines.length && /^\s*\d+[.)] /.test(lines[i])) out += `<li>${inline(lines[i++].replace(/^\s*\d+[.)] /, ""))}</li>`; out += "</ol>"; continue; }
+    if (/^> ?/.test(line)) { const q = []; while (i < lines.length && /^> ?/.test(lines[i])) q.push(lines[i++].replace(/^> ?/, "")); out += `<blockquote>${inline(q.join(" "))}</blockquote>`; continue; }
+    if (/^\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const cells = l => l.trim().slice(1, -1).split("|").map(x => inline(x.trim()));
+      out += "<table><tr>" + cells(line).map(x => `<th>${x}</th>`).join("") + "</tr>"; i += 2;
+      while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) out += "<tr>" + cells(lines[i++]).map(x => `<td>${x}</td>`).join("") + "</tr>";
+      out += "</table>"; continue;
+    }
+    if (!line.trim()) { i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !/^(#{1,3} |\s*[-*] |\s*\d+[.)] |> ?|\u0000|\|)/.test(lines[i])) para.push(lines[i++]);
+    if (!para.length) para.push(lines[i++]);
+    out += `<p>${inline(para.join("\n")).replace(/\n/g, "<br>")}</p>`;
+  }
+  return out;
+}
+const snippets = {};
+function codeBlock(code, lang) {
+  const id = "c" + uid(); snippets[id] = code;
+  const preview = /^(html|svg)$/i.test(lang) ? `<button onclick="openArt({title: 'Preview', kind: '${lang.toLowerCase()}', content: snippets['${id}']})">Preview</button>` : "";
+  return `<div class="codeblock"><div class="bar"><span>${esc(lang || "code")}</span><span>${preview} <button onclick="copyText(snippets['${id}'], this)">Copy</button></span></div><pre><code>${esc(code)}</code></pre></div>`;
+}
+function copyText(text, btn) {
+  const done = () => { if (btn) { const t = btn.textContent; btn.textContent = "Copied"; setTimeout(() => btn.textContent = t, 1200); } };
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done)); else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); done(); }
+
+// ------------------------------------------------ sidebar and options
+
+function renderSide() {
+  const q = $("search").value.toLowerCase(), projects = Store.listProjects(), chats = Store.listChats();
+  $("projects").innerHTML = projects.map(p => `<div class="item ${project === p.id ? "active" : ""}" onclick="pickProject('${p.id}')"><span>&#128193; ${esc(p.name)}</span><span class="x" onclick="event.stopPropagation(); editProject('${p.id}')">&#9998;</span></div>`).join("")
+    || `<div class="item" style="color:var(--side-dim);cursor:default">None yet</div>`;
+  const proj = projects.find(p => p.id === project);
+  $("chatsLabel").innerHTML = proj ? `In ${esc(proj.name)} &middot; <a href="#" style="color:var(--side-dim)" onclick="pickProject(null); return false">all</a>` : "Chats";
+  $("chats").innerHTML = chats.filter(c => (!project || c.project === project) && (!q || (c.title || "").toLowerCase().includes(q)))
+    .map(c => `<div class="item ${chat && chat.id === c.id ? "active" : ""}" onclick="openChat('${c.id}')"><span>${esc(c.title)}</span><span class="x" onclick="event.stopPropagation(); deleteChat('${c.id}')">&#10005;</span></div>`).join("");
+  renderStats();
+}
+function renderStats() { const s = stats(); $("stats").textContent = `${s.jobs || 0} job${s.jobs === 1 ? "" : "s"} since ${s.first_used} · ${(s.words_written || 0).toLocaleString()} words`; }
+function renderOpts() {
+  $("agentSel").innerHTML = Object.entries(allAgents()).map(([k, a]) => `<option value="${k}">${esc(a.name)}</option>`).join("");
+  $("agentSel").value = chat?.agent || "assistant";
+  const ready = installed();
+  $("modelSel").innerHTML = `<option value="auto">Auto</option>` + ready.map(k => `<option value="${k}">${CATALOG[k].label}</option>`).join("");
+  $("modelSel").value = ready.includes(settings.model) ? settings.model : "auto";
+  $("styleSel").innerHTML = Object.keys(STYLES).map(s => `<option value="${s}">${s[0].toUpperCase() + s.slice(1)}</option>`).join("");
+  $("styleSel").value = settings.style; $("think").checked = settings.think;
+  $("title").value = chat?.title || "New chat";
+  $("sendBtn").hidden = !!job; $("stopBtn").hidden = !job;
+}
+function pickProject(id) { project = id; renderSide(); if (!id) return; const c = Store.listChats().find(x => x.project === id); c ? openChat(c.id) : newChat(); }
+
+// ------------------------------------------------ chats
+
+function newChat() { chat = Store.newChat(project, $("agentSel").value || "assistant"); closeDrawer(); closePanel(); renderSide(); renderOpts(); renderChat(); }
+function openChat(id) { chat = Store.getChat(id); if (!chat) return; if (chat.project) project = chat.project; closeDrawer(); closePanel(); renderSide(); renderOpts(); renderChat(); }
+function deleteChat(id) { if (!confirm("Delete this chat?")) return; Store.deleteChat(id); if (chat && chat.id === id) chat = null; renderSide(); renderChat(); }
+function renameChat(title) { if (chat) { chat.title = title || "New chat"; Store.saveChat(chat); renderSide(); } }
+function setChatField(key, value) { if (chat) { chat[key] = value; Store.saveChat(chat); } }
+
+function renderChat() {
+  const box = $("chat");
+  if (!chat || !chat.messages.length) {
+    const noModel = !installed().length;
+    box.innerHTML = `<div id="empty"><h1>What can I help with?</h1>
+      ${noModel ? `<p>First, download a model. It's a one off, and then it works offline.</p><button class="primary" onclick="showModels()">Get a model</button>` : `<p>Your own AI, running on this phone.</p>`}
+      <div class="ideas">${["Write a friendly text asking for a quote", "Build a simple to do list page", "Explain how tides work in simple words", "Search the web for this week's weather in Enfield"].map(t => `<button onclick="useIdea(this.textContent)">${t}</button>`).join("")}</div></div>`;
+    return;
+  }
+  const results = {}; chat.messages.filter(m => m.role === "tool").forEach(m => results[m.tool_call_id] = m);
+  let out = "";
+  chat.messages.forEach((m, i) => {
+    if (m.role === "user") {
+      out += `<div class="msg user"><div class="bubble">${esc(m.content)}${(m.attachments || []).map(a => `<div><span class="chip">&#128196; ${esc(a.name)}</span></div>`).join("")}</div>
+        <div class="actions"><button onclick="editMessage(${i})">Edit</button><button onclick="copyText(chat.messages[${i}].content, this)">Copy</button></div></div>`;
+    } else if (m.role === "assistant") {
+      out += `<div class="msg ai">`;
+      if (m.thinking) out += `<details class="thinking"><summary>Thought it through</summary><div>${esc(m.thinking)}</div></details>`;
+      if (m.content) out += `<div class="md">${md(m.content)}</div>`;
+      (m.tool_calls || []).forEach(c => out += toolHtml(c, results[c.id]));
+      const isLast = !chat.messages.slice(i + 1).some(x => x.role === "assistant" && x.content);
+      if (m.content && isLast) out += `<div class="actions"><button onclick="copyText(chat.messages[${i}].content, this)">Copy</button><button onclick="regenerate()">Regenerate</button></div>`;
+      out += `</div>`;
+    }
+  });
+  box.innerHTML = out;
+  box.scrollTop = box.scrollHeight;
+}
+function toolHtml(call, result) {
+  let a = {}; try { a = JSON.parse(call.function.arguments || "{}"); } catch (e) {}
+  const name = call.function.name;
+  if (name === "create_artifact") {
+    const art = (chat.artifacts || []).find(x => result && x.id === result.artifact) || (chat.artifacts || []).find(x => x.title === a.title);
+    return art ? artifactCard(art) : "";
+  }
+  if (name === "ask_agent") {
+    const log = (result?.agent_log || []).map(e => (e.content ? `<div class="md">${md(e.content)}</div>` : "") + (e.tools?.length ? `<div class="chip">used ${esc(e.tools.join(", "))}</div>` : "")).join("");
+    return `<div class="agentbox"><div class="agentname">&#129302; ${esc(result?.agent || a.agent)} agent</div><details class="tool"><summary>Task: ${esc((a.task || "").slice(0, 100))}</summary><div style="padding: 4px 10px">${log || "<pre>" + esc(result?.content || "") + "</pre>"}</div></details></div>`;
+  }
+  return `<details class="tool"><summary>${esc(toolLabel(name, a))}</summary><pre>${esc(result ? result.content : "running...")}</pre></details>`;
+}
+function toolLabel(name, a) {
+  return {web_search: `Searched the web: ${a.query}`, read_webpage: `Read ${a.url}`}[name] || `${name} ${JSON.stringify(a).slice(0, 60)}`;
+}
+const arts = {};
+function artifactCard(a) {
+  arts[a.id] = a;
+  const icon = {html: "&#127760;", svg: "&#127912;", markdown: "&#128221;", code: "&#128187;"}[a.kind] || "&#128196;";
+  return `<div class="artifact-card" onclick="openArt(arts['${a.id}'])"><span style="font-size:24px">${icon}</span><span><b>${esc(a.title)}</b><small style="color:var(--dim)">${a.kind}${a.version > 1 ? ", version " + a.version : ""} · tap to open</small></span></div>`;
+}
+function useIdea(t) { $("input").value = t; autosize(); $("input").focus(); }
+function editMessage(i) {
+  const m = chat.messages[i]; $("input").value = m.content; attachments = m.attachments || []; renderAttachments();
+  $("input").dataset.edit = i; autosize(); $("input").focus(); setStatus("Editing an earlier message. Sending replaces it and everything after it.");
+}
+
+// ------------------------------------------------ sending
+
+function keydown(e) { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(min-width: 900px)").matches) { e.preventDefault(); send(); } }
+function autosize() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 180) + "px"; }
+async function attach(files) {
+  for (const f of files) {
+    if (/\.(png|jpe?g|gif|webp|heic|pdf|docx?)$/i.test(f.name)) { toast(`${f.name}: the phone version reads text and code files only.`); continue; }
+    if (f.size > 2e6) { toast(`${f.name} is too big (over 2 MB).`); continue; }
+    const text = await f.text();
+    if (text.slice(0, 2000).includes("\u0000")) { toast(`${f.name} doesn't look like a text file.`); continue; }
+    attachments.push({name: f.name, text: text.slice(0, 200000)});
+  }
+  $("file").value = ""; renderAttachments();
+}
+function renderAttachments() {
+  $("attachments").innerHTML = attachments.map((a, i) => `<span class="chip">&#128196; ${esc(a.name)}<button onclick="attachments.splice(${i}, 1); renderAttachments()">&#10005;</button></span>`).join("");
+}
+async function send(extra = {}) {
+  const text = $("input").value.trim();
+  if (!extra.regenerate && !text && !attachments.length) return;
+  if (!chat) chat = Store.newChat(project, $("agentSel").value || "assistant");
+  const body = {text, attachments, style: settings.style, think: settings.think, ...extra};
+  if ($("input").dataset.edit !== undefined && !extra.regenerate) { body.edit_index = +$("input").dataset.edit; delete $("input").dataset.edit; }
+  try { await startJob(chat, body); } catch (e) { toast(e.message); return; }
+  $("input").value = ""; attachments = []; renderAttachments(); autosize(); $("input").blur();
+  renderChat(); renderOpts(); renderSide(); startLive();
+}
+function regenerate() { send({regenerate: true}); }
+function stopJob() { if (job) job.controller.abort(); }
+
+// ------------------------------------------------ live updates while a reply is written
+
+function emit(ev) { onEvent(ev); }
+function startLive() { live = {el: document.createElement("div"), subs: {}, current: null, raw: ""}; live.el.className = "msg ai"; $("chat").appendChild(live.el); }
+function liveTarget(sub) {
+  if (!sub) return live.el;
+  if (!live.subs[sub]) { const d = document.createElement("div"); d.className = "agentbox"; d.innerHTML = `<div class="agentname"></div>`; live.el.appendChild(d); live.subs[sub] = d; }
+  return live.subs[sub];
+}
+function onEvent(ev) {
+  if (!chat || ev.chat !== chat.id) return;
+  if (ev.type === "status") { setStatus(ev.text); return; }
+  if (!live && ["assistant_start", "token", "tool_call", "agent_start", "artifact"].includes(ev.type)) startLive();
+  const box = $("chat");
+  if (ev.type === "assistant_start") {
+    live.current = document.createElement("div"); live.current.className = "md cursor"; live.raw = ""; liveTarget(ev.sub).appendChild(live.current); setStatus("Writing...");
+  } else if (ev.type === "token" && live.current) {
+    live.raw += ev.text;
+    live.current.innerHTML = md(live.raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, m => m.includes("</think>") ? "" : "_Thinking..._"));
+  } else if (ev.type === "assistant_end" && live.current) {
+    live.current.classList.remove("cursor"); if (!ev.message.content) live.current.remove();
+  } else if (ev.type === "tool_call") {
+    const d = document.createElement("details"); d.className = "tool"; d.id = "t_" + ev.id;
+    d.innerHTML = `<summary>${esc(toolLabel(ev.name, ev.args))}</summary><pre>running...</pre>`; liveTarget(ev.sub).appendChild(d); setStatus(toolLabel(ev.name, ev.args));
+  } else if (ev.type === "tool_result") {
+    const d = $("t_" + ev.id); if (d) d.querySelector("pre").textContent = ev.result;
+  } else if (ev.type === "agent_start") {
+    liveTarget(ev.id).querySelector(".agentname").innerHTML = `&#129302; ${esc(ev.agent)} agent is working...`;
+  } else if (ev.type === "agent_end") {
+    const t = live.subs[ev.id]; if (t) t.querySelector(".agentname").innerHTML = t.querySelector(".agentname").innerHTML.replace(" is working...", "");
+  } else if (ev.type === "artifact") {
+    const d = document.createElement("div"); d.innerHTML = artifactCard(ev.artifact); live.el.appendChild(d); openArt(ev.artifact);
+  } else if (ev.type === "error") {
+    const d = document.createElement("div"); d.className = "msg error"; d.textContent = ev.text; box.appendChild(d);
+  } else if (ev.type === "done") {
+    live = null; setStatus(""); const errs = [...box.querySelectorAll(".msg.error")].map(e => e.textContent);
+    chat = Store.getChat(chat.id); renderChat(); renderOpts(); renderSide();
+    errs.forEach(t => { const d = document.createElement("div"); d.className = "msg error"; d.textContent = t; box.appendChild(d); });
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+// ------------------------------------------------ full screen panel for finished work
+
+function openArt(a) { currentArt = a; $("panel").classList.add("open"); $("artTitle").textContent = a.title; artTab(a.kind === "code" ? "code" : "preview"); }
+function closePanel() { $("panel").classList.remove("open"); currentArt = null; }
+function artTab(mode) {
+  const a = currentArt; if (!a) return;
+  $("tabPreview").classList.toggle("on", mode === "preview"); $("tabCode").classList.toggle("on", mode === "code");
+  $("tabPreview").hidden = a.kind === "code";
+  const body = $("artBody");
+  if (mode === "code" || a.kind === "code") { body.innerHTML = codeBlock(a.content, a.language || a.kind).replace('class="codeblock"', 'class="codeblock" style="margin:0;border-radius:0;min-height:100%"'); return; }
+  if (a.kind === "markdown") { body.innerHTML = `<div class="md">${md(a.content)}</div>`; return; }
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
+  frame.srcdoc = a.kind === "svg" ? `<body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh">${a.content}</body>` : a.content;
+  body.innerHTML = ""; body.appendChild(frame);
+}
+async function saveArt() {
+  const a = currentArt, ext = {html: "html", svg: "svg", markdown: "md"}[a.kind] || "txt";
+  const mime = {html: "text/html", svg: "image/svg+xml", markdown: "text/markdown"}[a.kind] || "text/plain";
+  try { toast("Saved to " + await bridge("saveDownload", {name: `${a.title}.${ext}`, content: a.content, mime})); } catch (e) { toast(e.message); }
+}
+
+// ------------------------------------------------ dialogs
+
+function modal(html, onReady) {
+  document.querySelector(".modal-bg")?.remove();
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal">${html}</div>`;
+  bg.onclick = e => { if (e.target === bg) bg.remove(); };
+  document.body.appendChild(bg); if (onReady) onReady(bg); return bg;
+}
+const closeModal = () => document.querySelector(".modal-bg")?.remove();
+
+const downloads = {};
+function onBridgeEvent(ev) {
+  if (ev.type !== "download") return;
+  downloads[ev.key] = ev;
+  if (ev.status === "done") { delete downloads[ev.key]; renderOpts(); if (!chat || !chat.messages.length) renderChat(); }
+  if (ev.status === "cancelled") delete downloads[ev.key];
+  if (document.querySelector("#modelsList")) drawModels();
+}
+function drawModels() {
+  const files = JSON.parse(B.models() || "{}"), ramGb = B.memory() / 1e9;
+  $("modelsList").innerHTML = Object.entries(CATALOG).map(([k, m]) => {
+    const dl = downloads[k], ready = !!files[k];
+    let action;
+    if (ready) action = `<span class="ok">Ready</span> <button onclick="delModel('${k}')">Delete</button>`;
+    else if (dl && !dl.status) action = `<small>${(dl.done / 1e9).toFixed(2)} of ${dl.total ? (dl.total / 1e9).toFixed(2) : "?"} GB</small> <button onclick="B.cancelDownload('${k}')">Pause</button>`;
+    else action = `<button class="primary" onclick="getModel('${k}')">${dl && dl.status === "error" ? "Try again" : dl && dl.done ? "Resume" : "Download"}</button>`;
+    const bar = dl && !dl.status && dl.total ? `<div class="bar-outer"><div class="bar-inner" style="width:${100 * dl.done / dl.total}%"></div></div>` : "";
+    const err = dl && dl.status === "error" ? `<div class="error"><small>${esc(dl.error)}</small></div>` : "";
+    const warn = m.size_gb * 2.2 > ramGb ? `<br><small class="error">May be too big for this phone's memory.</small>` : "";
+    return `<div class="card"><div class="row"><div><b>${m.label}</b> <small>${m.detail}, ${m.size_gb} GB</small><br><small>${m.about}</small>${warn}</div><div>${action}</div></div>${bar}${err}</div>`;
+  }).join("");
+}
+function showModels() {
+  modal(`<h2>Models</h2><p style="color:var(--dim);margin-top:0">Download once over Wi-Fi, then they work offline. Start with General.
+    <br><small>${(B.freeSpace() / 1e9).toFixed(1)} GB free on this phone.</small></p><div id="modelsList"></div>
+    <div class="buttons"><button class="primary" onclick="closeModal()">Done</button></div>`);
+  drawModels();
+}
+function getModel(k) {
+  const m = CATALOG[k];
+  if (m.size_gb * 1.1e9 > B.freeSpace()) { alert("There isn't enough free space on the phone for this model."); return; }
+  downloads[k] = {done: 0, total: 0};
+  bridge("download", {key: k, repo: m.repo, quant: m.quant}).catch(e => { downloads[k] = {status: "error", error: e.message}; drawModels(); });
+  drawModels();
+}
+function delModel(k) {
+  if (!confirm("Delete this model from the phone? You can download it again later.")) return;
+  B.deleteModel(k); if (engineModel === k) { engineModel = null; enginePort = 0; }
+  drawModels(); renderOpts();
+}
+
+const GROUP_LABELS = {web: "Search the web", artifacts: "Show finished work full screen", delegate: "Hand work to other agents"};
+function showAgents() {
+  const custom = customAgents();
+  const list = Object.entries(allAgents()).map(([k, a]) => `<div class="card"><div class="row"><div><b>${esc(a.name)}</b> <small>${custom[k] ? "yours" : "built in"} · model: ${esc(a.model)}</small><br><small>${esc(a.instructions)}</small></div>
+    <div><button onclick="useAgent('${k}')">Chat</button> ${custom[k] ? `<button onclick="editAgent('${k}')">Edit</button> <button onclick="delAgent('${k}')">Delete</button>` : `<button onclick="editAgent('${k}', true)">Copy</button>`}</div></div></div>`).join("");
+  modal(`<h2>Agents</h2><p style="color:var(--dim);margin-top:0">Each agent is a role with its own instructions and tools. Assistant and Planner can hand work to the others.</p>${list}
+    <div class="buttons"><button onclick="editAgent()">+ New agent</button><button class="primary" onclick="closeModal()">Done</button></div>`);
+}
+function editAgent(key, copy) {
+  const a = key ? allAgents()[key] : {name: "", instructions: "", tools: ["web"], model: "auto"};
+  const models = [["auto", "Auto"], ...Object.entries(CATALOG).map(([k, m]) => [k, m.label])];
+  modal(`<h2>${key && !copy ? "Edit agent" : "New agent"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="agName" value="${esc(copy ? a.name + " (copy)" : a.name)}"></div>
+    <div class="field"><label>Instructions: who it is and how it should work</label><textarea id="agInstr" rows="6">${esc(a.instructions)}</textarea></div>
+    <div class="field"><label>Preferred model</label><select id="agModel">${models.map(([k, l]) => `<option value="${k}" ${a.model === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="field checks"><label style="color:var(--dim)">Tools it can use</label>${Object.entries(GROUP_LABELS).map(([g, l]) => `<label><input type="checkbox" value="${g}" ${a.tools.includes(g) ? "checked" : ""}> ${l}</label>`).join("")}</div>
+    <div class="buttons"><button onclick="showAgents()">Cancel</button><button class="primary" id="agSave">Save</button></div>`, bg => {
+    bg.querySelector("#agSave").onclick = () => {
+      const name = $("agName").value.trim() || "My agent", agents = customAgents();
+      let id = key && !copy ? key : name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "agent";
+      if (!(key && !copy) && (BUILTIN_AGENTS[id] || agents[id])) id += "-" + uid().slice(0, 4);
+      agents[id] = {name, instructions: $("agInstr").value, model: $("agModel").value, tools: [...bg.querySelectorAll(".checks input:checked")].map(i => i.value)};
+      writeJSON("agents.json", agents); renderOpts(); showAgents();
+    };
+  });
+}
+function delAgent(k) { if (!confirm("Delete this agent?")) return; const a = customAgents(); delete a[k]; writeJSON("agents.json", a); renderOpts(); showAgents(); }
+function useAgent(k) { closeModal(); newChat(); $("agentSel").value = k; setChatField("agent", k); }
+
+function editProject(id) {
+  closeDrawer();
+  const p = id ? Store.getProject(id) : {name: "", instructions: "", files: []};
+  const files = [...(p.files || [])];
+  const draw = () => $("prFiles").innerHTML = files.map((f, i) => `<span class="chip">&#128196; ${esc(f.name)} <a href="#" onclick="window.prRemove(${i}); return false">&#10005;</a></span>`).join("") || `<small style="color:var(--dim)">No files yet</small>`;
+  window.prRemove = i => { files.splice(i, 1); draw(); };
+  modal(`<h2>${id ? "Edit project" : "New project"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="prName" value="${esc(p.name)}"></div>
+    <div class="field"><label>Instructions for every chat in this project</label><textarea id="prInstr" rows="5" placeholder="For example: I'm planning a trip to Cornwall in May. We have a dog.">${esc(p.instructions)}</textarea></div>
+    <div class="field"><label>Knowledge files (text) the AI reads in every chat</label><div id="prFiles"></div><button style="margin-top:6px" onclick="$('prFileInput').click()">Add files</button><input type="file" id="prFileInput" multiple hidden></div>
+    <div class="buttons">${id ? `<button style="margin-right:auto" onclick="delProject('${id}')">Delete</button>` : ""}<button onclick="closeModal()">Cancel</button><button class="primary" id="prSave">Save</button></div>`, bg => {
+    draw();
+    bg.querySelector("#prFileInput").onchange = async e => { for (const f of e.target.files) { const t = await f.text(); if (!t.slice(0, 2000).includes("\u0000")) files.push({name: f.name, text: t.slice(0, 200000)}); } draw(); };
+    bg.querySelector("#prSave").onclick = () => {
+      const saved = {id: id || uid(), name: $("prName").value.trim() || "New project", instructions: $("prInstr").value, files};
+      Store.saveProject(saved); closeModal(); if (id) renderSide(); else pickProject(saved.id);
+    };
+  });
+}
+function delProject(id) { if (!confirm("Delete this project? Its chats are kept.")) return; Store.deleteProject(id); project = null; closeModal(); renderSide(); }
+
+function showMemory() {
+  modal(`<h2>Memory</h2><p style="color:var(--dim);margin-top:0">What Desk Agent has learned about you. It's added to every chat. Edit or clear it any time.</p>
+    <textarea id="memText" rows="12" style="width:100%">${esc(readMemory())}</textarea>
+    <div class="buttons"><button onclick="$('memText').value=''">Clear</button><button onclick="closeModal()">Cancel</button><button class="primary" id="memSave">Save</button></div>`, bg => {
+    bg.querySelector("#memSave").onclick = () => { B.write("memory.txt", $("memText").value); closeModal(); toast("Memory saved"); };
+  });
+}
+function showSettings() {
+  modal(`<h2>Settings</h2>
+    <div class="field"><label>Chat memory size in tokens (bigger remembers more of a chat, but is slower and uses more battery)</label>
+      <select id="seCtx">${[4096, 8192, 16384].map(n => `<option ${settings.context === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+    <div class="field"><label>Most tool steps per reply</label><select id="seSteps">${[6, 12, 20].map(n => `<option ${settings.max_steps === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+    <div class="field checks"><label><input type="checkbox" id="seLearn" ${settings.learn ? "checked" : ""}> Learn from my conversations</label></div>
+    <p style="color:var(--dim);font-size:14px">Everything is stored on this phone only. Uninstalling the app deletes it all.</p>
+    <div class="buttons"><button onclick="closeModal()">Cancel</button><button class="primary" id="seSave">Save</button></div>`, bg => {
+    bg.querySelector("#seSave").onclick = () => {
+      const ctx = +$("seCtx").value;
+      if (ctx !== settings.context) { engineModel = null; enginePort = 0; bridge("stopEngine"); }
+      saveSettings({context: ctx, max_steps: +$("seSteps").value, learn: $("seLearn").checked}); closeModal(); toast("Settings saved");
+    };
+  });
+}
+
+// ------------------------------------------------ start
+
+(function start() {
+  renderOpts(); renderSide();
+  const chats = Store.listChats();
+  if (chats.length) openChat(chats[0].id); else renderChat();
+  if (!installed().length) showModels();
+  else {
+    // Start loading the likely model now, so the first reply is quicker.
+    const ready = installed(), key = ready.includes(settings.model) ? settings.model : ready.includes("general") ? "general" : ready[0];
+    loadModel(key).then(() => setStatus(""), () => setStatus(""));
+  }
+})();
+</script>
+</body>
+</html>
