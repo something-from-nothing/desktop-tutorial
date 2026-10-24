@@ -204,6 +204,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <div class="foot">
     <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
     <button class="row-btn" onclick="closeDrawer(); showModels()"><svg class="i"><use href="#i-chip"/></svg><span>Models</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showSchedules()"><svg class="i"><use href="#i-clock"/></svg><span>Scheduled</span></button>
     <button class="row-btn" onclick="closeDrawer(); showMemory()"><svg class="i"><use href="#i-book"/></svg><span>Memory</span></button>
     <button class="row-btn" onclick="closeDrawer(); showSettings()"><svg class="i"><use href="#i-gear"/></svg><span>Settings</span></button>
     <div class="stats" id="stats"></div>
@@ -272,6 +273,8 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21a2 2 0 0 1 2-2h13v2"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></symbol>
 </svg>
 <script>
@@ -301,6 +304,8 @@ const BUILTIN_AGENTS = {
     instructions: "You research questions. Search the web, read the most relevant pages, compare sources, and give a clear answer with the links you used. Say when sources disagree or you are unsure."},
   writer: {name: "Writer", blurb: "Emails, posts, letters and stories", model: "general", tools: ["artifacts"],
     instructions: "You write and edit: emails, posts, letters, reports, stories. Match the reader and purpose, keep it plain and human, and put long finished pieces in a markdown artifact."},
+  phone: {name: "Phone", blurb: "Uses your apps for you", model: "general", tools: ["phone"],
+    instructions: "You use apps on the user's phone for them. Start with read_screen to see what is on screen, then take one action at a time (open_app, tap, type_text, scroll, press) and read the screen again after each one to check it worked. Use the item numbers from the latest read_screen. Before anything that sends a message, posts, buys, pays, books or deletes, stop and ask the user to confirm in your reply instead of doing it. When the job is done, say what you did."},
   planner: {name: "Planner", blurb: "Splits big jobs between the agents", model: "general", tools: ["delegate"],
     instructions: "You break big jobs into clear steps, then hand each step to the right agent with ask_agent and pull their results together into one answer."},
 };
@@ -325,12 +330,18 @@ const B = window.Android || (() => {
     remove: p => (localStorage.removeItem("da:" + p), true),
     models: () => ls("_models") || "{}", deleteModel: k => { const m = JSON.parse(ls("_models") || "{}"); delete m[k]; localStorage.setItem("da:_models", JSON.stringify(m)); return true; },
     cancelDownload: () => {}, freeSpace: () => 64e9, memory: () => 12e9, loaded: () => null,
+    isBackground: () => false, phoneEnabled: () => localStorage.getItem("da:_phone") === "on", openPhoneSettings: () => localStorage.setItem("da:_phone", "on"),
+    keepAlive: () => {}, bringToFront: () => {}, exactAlarmsAllowed: () => true, openAlarmSettings: () => {}, notificationsAllowed: () => true,
+    askForNotifications: () => {}, schedulesChanged: () => { window.__schedulesChanged = (window.__schedulesChanged || 0) + 1; },
+    scheduledDone: (chatId, title, text) => { window.__scheduledDone = {chatId, title, text}; },
     call: async (id, method, args) => {
       const a = JSON.parse(args), reply = (value, error) => setTimeout(() => window.__bridgeReply(JSON.stringify({id, value, error})), 10);
       try {
         if (method === "startEngine") return reply(enginePort);
         if (method === "httpGet") return reply(await (await fetch(a.url)).text());
         if (method === "saveDownload") return reply("Downloads/" + a.name);
+        if (method === "phoneRead") return reply("App on screen: Notes\n[1] button \"New note\"\n[2] text field hint \"Title\"");
+        if (method.startsWith("phone")) return reply(`${method} ok`);
         if (method === "download") { reply(true); const m = JSON.parse(ls("_models") || "{}"); m[a.key] = 1e9; localStorage.setItem("da:_models", JSON.stringify(m));
           setTimeout(() => window.__bridgeEvent(JSON.stringify({type: "download", key: a.key, done: 1e9, total: 1e9, status: "done"})), 300); return; }
         reply(true);
@@ -438,6 +449,15 @@ const TOOL_GROUPS = {
     tool("create_artifact", "Show the user a finished piece of work full screen: a web page or small app (html), a drawing (svg), a document (markdown) or a code file (code). Send the complete content. Use the same title again to update it.",
       {title: {type: "string"}, kind: {type: "string", enum: ["html", "svg", "markdown", "code"]}, language: {type: "string"}, content: {type: "string"}}, ["title", "kind", "content"]),
   ],
+  phone: [
+    tool("read_screen", "See what is on the phone's screen now, as a numbered list of buttons, text fields and text.", {}, []),
+    tool("open_app", "Open an installed app by its name, for example Gmail, Maps or Settings.", {name: {type: "string"}}, ["name"]),
+    tool("tap", "Tap an item on screen by its number from the latest read_screen.", {item: {type: "integer"}}, ["item"]),
+    tool("type_text", "Type into a text field, by its number from read_screen. Leave out item to type into the field that is already selected.", {text: {type: "string"}, item: {type: "integer"}}, ["text"]),
+    tool("scroll", "Scroll the screen or a list up or down.", {direction: {type: "string", enum: ["up", "down"]}, item: {type: "integer"}}, ["direction"]),
+    tool("press", "Press one of the phone's own buttons.", {button: {type: "string", enum: ["back", "home", "recents", "notifications"]}}, ["button"]),
+    tool("list_apps", "List the names of the apps installed on the phone.", {}, []),
+  ],
   delegate: [
     tool("ask_agent", "Hand a self contained task to a specialist agent and get its answer back. Describe the task fully; the agent can't see this chat.",
       {agent: {type: "string", description: "Agent id"}, task: {type: "string"}}, ["agent", "task"]),
@@ -447,6 +467,7 @@ const GROUP_PROMPTS = {
   web: "You can search the web and read pages. Say where information came from.",
   artifacts: "Use create_artifact to show finished web pages, drawings, documents or code to the user.",
   delegate: "Agents you can hand work to with ask_agent: {agents}.",
+  phone: "You can use the phone's apps with read_screen, open_app, tap, type_text, scroll, press and list_apps.",
 };
 
 function pageText(raw) {
@@ -576,6 +597,7 @@ async function runJob(c, body) {
     job = null;
     emit({type: "done", chat: c.id});
     if (model) afterJob(c, model, stopped);
+    onJobDone(c, stopped);
   }
 }
 
@@ -611,7 +633,8 @@ async function runTool(c, call, sub) {
   try { args = JSON.parse(call.function.arguments || "{}"); } catch (e) { return [`ERROR: the arguments were not valid JSON: ${call.function.arguments.slice(0, 400)}`, {}]; }
   const def = Object.values(TOOL_GROUPS).flat().find(t => t.function.name === name);
   if (!def) return [`ERROR: there is no tool called ${name}.`, {}];
-  const missing = def.function.parameters.required.filter(k => typeof args[k] !== "string" || !args[k]);
+  const props = def.function.parameters.properties;
+  const missing = def.function.parameters.required.filter(k => args[k] === undefined || args[k] === "" || (props[k].type === "integer" && !Number.isInteger(+args[k])));
   if (missing.length) return [`ERROR: missing ${missing.join(", ")}.`, {}];
   emit({type: "tool_call", chat: c.id, sub, id: call.id, name, args});
   let result, extra = {};
@@ -620,6 +643,7 @@ async function runTool(c, call, sub) {
     else if (name === "read_webpage") result = pageText(await bridge("httpGet", {url: args.url}));
     else if (name === "create_artifact") [result, extra] = makeArtifact(c, args);
     else if (name === "ask_agent") [result, extra] = await askAgent(c, call.id, args);
+    else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
   } catch (e) { result = `ERROR: ${e.message || e}`; }
   if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
   emit({type: "tool_result", chat: c.id, sub, id: call.id, name, result: result.slice(0, 3000)});
@@ -741,7 +765,7 @@ function pickProject(id) { project = id; renderSide(); if (!id) return; const c 
 
 // The small line above the message bar only appears when something isn't the default.
 function renderMode() {
-  const parts = [], agents = allAgents(), agent = chat?.agent || "assistant";
+  const parts = [], agents = allAgents(), agent = currentAgent();
   if (agent !== "assistant") parts.push(agents[agent]?.name || agent);
   if (settings.model !== "auto" && installed().includes(settings.model)) parts.push(CATALOG[settings.model].label);
   if (settings.style !== "normal") parts.push(settings.style[0].toUpperCase() + settings.style.slice(1));
@@ -783,10 +807,12 @@ function renderChat() {
         <div class="tools-row"><button class="icon-btn" onclick="event.stopPropagation(); editMessage(${i})" aria-label="Edit">${icon("edit")}</button>
         <button class="icon-btn" onclick="event.stopPropagation(); copyText(chat.messages[${i}].content)" aria-label="Copy">${icon("copy")}</button></div></div>`;
     } else if (m.role === "assistant") {
-      const steps = (m.thinking ? step("bulb", "Reasoning", esc(m.thinking), "thinking") : "") + (m.tool_calls || []).map(c => toolHtml(c, results[c.id])).join("");
-      if (!steps && !m.content) return;
-      out += `<div class="msg ai">${steps}`;
+      const steps = (m.tool_calls || []).map(c => toolHtml(c, results[c.id])).join("");
+      if (!steps && !m.content && !m.thinking) return;
+      out += `<div class="msg ai">`;
+      if (m.thinking) out += step("bulb", "Reasoning", esc(m.thinking), "thinking");
       if (m.content) out += `<div class="md">${md(m.content)}</div>`;
+      out += steps;
       if (i === lastAnswer) out += `<div class="tools-row"><button class="icon-btn" onclick="copyText(chat.messages[${i}].content)" aria-label="Copy">${icon("copy")}</button>
         <button class="icon-btn" onclick="regenerate()" aria-label="Try again">${icon("redo")}</button></div>`;
       out += `</div>`;
@@ -811,9 +837,11 @@ function toolHtml(call, result) {
     const log = (result?.agent_log || []).map(e => e.content ? md(e.content) : "").join("") || esc(result?.content || "Working...");
     return `<div class="agentbox">${step("person", `Asked ${result?.agent || a.agent}: ${a.task || ""}`, log, "", true)}</div>`;
   }
-  return step(name === "web_search" ? "search" : "globe", toolLabel(name, a), esc(result ? result.content : "Working..."));
+  return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
 }
+function toolIcon(name) { return name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : "globe"; }
 function toolLabel(name, a) {
+  if (PHONE_TOOLS[name]) return PHONE_TOOLS[name](a);
   if (name === "web_search") return `Searched for “${a.query}”`;
   if (name === "read_webpage") { try { return `Read ${new URL(a.url).hostname.replace(/^www\./, "")}`; } catch (e) { return "Read a web page"; } }
   return name.replace(/_/g, " ");
@@ -850,7 +878,7 @@ function renderAttachments() {
 async function send(extra = {}) {
   const text = $("input").value.trim();
   if (!extra.regenerate && !text && !attachments.length) return;
-  if (!chat) chat = Store.newChat(project, currentAgent());
+  if (!chat) { chat = Store.newChat(project, currentAgent()); window.nextAgent = null; }
   const body = {text, attachments, style: settings.style, think: settings.think, ...extra};
   if ($("input").dataset.edit !== undefined && !extra.regenerate) { body.edit_index = +$("input").dataset.edit; delete $("input").dataset.edit; }
   try { await startJob(chat, body); } catch (e) { toast(e.message); return; }
@@ -893,7 +921,7 @@ function onEvent(ev) {
   } else if (ev.type === "assistant_end" && live.current) {
     live.current.classList.remove("cursor"); if (!ev.message.content) live.current.remove();
   } else if (ev.type === "tool_call") {
-    if (ev.name !== "create_artifact" && ev.name !== "ask_agent") liveStep(ev.sub, ev.id, toolLabel(ev.name, ev.args), ev.name === "web_search" ? "search" : "globe");
+    if (ev.name !== "create_artifact" && ev.name !== "ask_agent") liveStep(ev.sub, ev.id, toolLabel(ev.name, ev.args), toolIcon(ev.name));
   } else if (ev.type === "tool_result") {
     const d = $("t_" + ev.id); if (d) { d.querySelector(".detail").textContent = ev.result; d.querySelector(".live-dot")?.remove(); }
   } else if (ev.type === "agent_start") {
@@ -903,6 +931,7 @@ function onEvent(ev) {
   } else if (ev.type === "artifact") {
     const d = document.createElement("div"); d.innerHTML = artifactCard(ev.artifact); live.el.appendChild(d.firstElementChild); openArt(ev.artifact);
   } else if (ev.type === "error") {
+    lastError = ev.text;
     const d = document.createElement("div"); d.className = "msg note"; d.textContent = ev.text; box.appendChild(d);
   } else if (ev.type === "done") {
     live = null; setStatus(""); const notes = [...box.querySelectorAll(".msg.note")].map(e => e.textContent);
@@ -967,6 +996,7 @@ function pickStyle(k) { saveSettings({style: k}); renderMode(); showOptions(); }
 
 const downloads = {};
 function onBridgeEvent(ev) {
+  if (ev.type === "stop") { stopJob(); return; }
   if (ev.type !== "download") return;
   downloads[ev.key] = ev;
   if (ev.status === "done") { delete downloads[ev.key]; renderOpts(); if (!chat || !chat.messages.length) renderChat(); }
@@ -1005,7 +1035,7 @@ function delModel(k) {
   drawModels(); renderOpts();
 }
 
-const GROUP_LABELS = {web: ["Search the web", "Look things up and read pages"], artifacts: ["Make pages and documents", "Shows finished work full screen"], delegate: ["Ask other agents", "Hands parts of a job to the others"]};
+const GROUP_LABELS = {web: ["Search the web", "Look things up and read pages"], artifacts: ["Make pages and documents", "Shows finished work full screen"], delegate: ["Ask other agents", "Hands parts of a job to the others"], phone: ["Use the phone's apps", "Reads the screen, taps and types for you"]};
 function showAgents() {
   const custom = customAgents();
   sheet(`<h2>Agents</h2><p class="sub">Each agent has its own instructions and tools. Assistant and Planner can ask the others for help.</p>
@@ -1082,9 +1112,185 @@ function showSettings() {
   });
 }
 
+// ------------------------------------------------ using the phone's apps
+
+const PHONE_TOOLS = {
+  read_screen: () => "Looked at the screen",
+  open_app: a => `Opened ${a.name}`,
+  tap: a => `Tapped item ${a.item}`,
+  type_text: a => `Typed “${String(a.text || "").slice(0, 40)}”`,
+  scroll: a => `Scrolled ${a.direction}`,
+  press: a => `Pressed ${a.button}`,
+  list_apps: () => "Checked which apps are installed",
+};
+let phoneSession = false;
+async function phoneTool(c, name, a) {
+  if (B.isBackground()) throw new Error("Phone control can't be used in scheduled chats.");
+  if (!B.phoneEnabled()) { askPhoneSetup(); throw new Error("Phone control is switched off. The user is being shown how to turn it on. Stop and tell them to try again once it's on."); }
+  if (!c.phone_ok) {
+    if (!(await askPhoneConsent())) throw new Error("The user said no to using the phone in this chat. Stop and ask what they'd like instead.");
+    c.phone_ok = true; Store.saveChat(c);
+  }
+  if (!phoneSession) { B.keepAlive(true); phoneSession = true; }
+  const calls = {read_screen: ["phoneRead", {}], open_app: ["phoneOpen", {name: a.name}], tap: ["phoneTap", {item: +a.item}],
+    type_text: ["phoneType", {text: a.text, item: +(a.item || 0)}], scroll: ["phoneScroll", {direction: a.direction, item: +(a.item || 0)}],
+    press: ["phonePress", {button: a.button}], list_apps: ["phoneApps", {}]};
+  const [method, args] = calls[name];
+  return String(await bridge(method, args));
+}
+function askPhoneConsent() {
+  return new Promise(resolve => {
+    sheet(`<h2>Use your phone?</h2>
+      <p class="sub">For this chat, Desk Agent wants to read your screen and tap, type and open apps for you. You'll see a notification with a Stop button while it works, and it will ask before sending, buying or deleting anything.</p>
+      <div class="buttons"><button class="text" id="pcNo">Not now</button><button class="filled" id="pcYes">Allow for this chat</button></div>`, bg => {
+      bg.onclick = null;
+      bg.querySelector("#pcYes").onclick = () => { closeSheet(); resolve(true); };
+      bg.querySelector("#pcNo").onclick = () => { closeSheet(); resolve(false); };
+    });
+  });
+}
+function askPhoneSetup() {
+  const draw = () => sheet(`<h2>Turn on phone control</h2>
+    <p class="sub">Android needs your permission before any app can use other apps for you. It's done once.</p>
+    <div class="list">
+      <div class="item"><span class="grow">1. Open Accessibility settings<small>Then tap Desk Agent phone control, switch it on, and tap Allow.</small></span><button class="tonal" onclick="B.openPhoneSettings()">Open</button></div>
+      <div class="item"><span class="grow">2. If it's greyed out<small>Android blocks this for apps not from the Play Store until you allow it: Settings, Apps, Desk Agent, then the three dots at the top, then Allow restricted settings. Then do step 1 again.</small></span></div>
+    </div>
+    <p class="sub" style="margin-top:14px">${B.phoneEnabled() ? "Phone control is on. Send your message again." : "Status: off"}</p>
+    <div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
+  window.__sheetRedraw = () => { if (document.querySelector(".sheet-bg")) draw(); };
+  draw();
+}
+
+// ------------------------------------------------ scheduled chats
+
+const REPEATS = {daily: "Every day", weekdays: "Weekdays", weekly: "Every week", once: "Once"};
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function schedules() { return readJSON("schedules.json", []); }
+function saveSchedules(list) { writeJSON("schedules.json", list); B.schedulesChanged(); }
+// When a schedule should next run, in milliseconds, or 0 for never.
+function nextRun(s, from = Date.now()) {
+  if (!s.enabled) return 0;
+  if (s.repeat === "once") { const t = new Date(`${s.date}T${s.time}`).getTime(); return t > from ? t : 0; }
+  const [h, m] = (s.time || "07:00").split(":").map(Number);
+  for (let i = 0; i < 9; i++) {
+    const t = new Date(from); t.setDate(t.getDate() + i); t.setHours(h, m, 0, 0);
+    const wd = t.getDay();
+    if (t.getTime() <= from || (s.repeat === "weekdays" && (wd === 0 || wd === 6)) || (s.repeat === "weekly" && wd !== +s.day)) continue;
+    return t.getTime();
+  }
+  return 0;
+}
+function describeSchedule(s) {
+  if (s.repeat === "once") return `${new Date(`${s.date}T${s.time}`).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"})} at ${s.time}`;
+  if (s.repeat === "weekly") return `${DAYS[+s.day]}s at ${s.time}`;
+  return `${REPEATS[s.repeat]} at ${s.time}`;
+}
+function nextText(s) {
+  const t = s.enabled ? s.next_run : 0;
+  return t ? "Next " + new Date(t).toLocaleString("en-GB", {weekday: "short", hour: "2-digit", minute: "2-digit"}) : s.enabled ? "Finished" : "Paused";
+}
+function scheduleChat(s, list) {
+  let c = s.chat_id && Store.getChat(s.chat_id);
+  if (!c) {
+    c = Store.newChat(null, s.agent || "assistant"); c.title = s.title; c.scheduled = s.id; Store.saveChat(c);
+    s.chat_id = c.id; saveSchedules(list);
+  }
+  return c;
+}
+function showSchedules() {
+  const draw = () => {
+    const list = schedules();
+    const warn = [];
+    if (!B.exactAlarmsAllowed()) warn.push(`<div class="item"><span class="grow">Allow on time alarms<small>Without this, scheduled chats can run late.</small></span><button class="tonal" onclick="B.openAlarmSettings()">Allow</button></div>`);
+    if (!B.notificationsAllowed()) warn.push(`<div class="item"><span class="grow">Allow notifications<small>So you hear when a scheduled chat has an answer.</small></span><button class="tonal" onclick="B.askForNotifications()">Allow</button></div>`);
+    sheet(`<h2>Scheduled</h2><p class="sub">Chats that run on their own, like a morning briefing. Each one keeps its answers in its own chat, and you get a notification.</p>
+      ${warn.length ? `<div class="list" style="margin-bottom:12px">${warn.join("")}</div>` : ""}
+      <div class="list">${list.map(x => `<div class="item"><span class="grow" onclick="editSchedule('${x.id}')" style="cursor:pointer">${esc(x.title)}<small>${describeSchedule(x)} · ${nextText(x)}</small></span>
+        ${toggle("sch-" + x.id, x.enabled).replace("<input", `<input onchange="toggleSchedule('${x.id}', this.checked)"`)}</div>`).join("")
+        || `<div class="item"><span class="grow">Nothing scheduled yet<small>For example: every morning at 7, summarise today's news.</small></span></div>`}</div>
+      <div class="buttons"><button class="tonal left" onclick="editSchedule()">New</button><button class="text" onclick="closeSheet()">Done</button></div>`);
+  };
+  window.__sheetRedraw = () => { if (document.querySelector(".sheet-bg")) draw(); };
+  draw();
+}
+function toggleSchedule(id, on) {
+  const list = schedules(), s = list.find(x => x.id === id);
+  s.enabled = on; s.next_run = nextRun(s); saveSchedules(list); showSchedules();
+}
+function editSchedule(id) {
+  const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+  const s = id ? schedules().find(x => x.id === id) : {title: "", prompt: "", repeat: "daily", time: "07:00", day: 1, date: tomorrow, agent: "assistant", enabled: true};
+  const agents = Object.entries(allAgents()).filter(([k]) => k !== "phone");
+  const show = () => { const r = $("scRepeat").value; $("scDayField").hidden = r !== "weekly"; $("scDateField").hidden = r !== "once"; };
+  sheet(`<h2>${id ? "Edit scheduled chat" : "New scheduled chat"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="scTitle" value="${esc(s.title)}" placeholder="For example: Morning briefing"></div>
+    <div class="field"><label>What to ask</label><textarea id="scPrompt" rows="4" placeholder="For example: Search for today's weather in Enfield and the top UK news, and give me a short summary.">${esc(s.prompt)}</textarea></div>
+    <div class="field"><label>When</label><select id="scRepeat">${Object.entries(REPEATS).map(([k, l]) => `<option value="${k}" ${s.repeat === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="field" id="scDayField"><label>Day</label><select id="scDay">${DAYS.map((d, i) => `<option value="${i}" ${+s.day === i ? "selected" : ""}>${d}</option>`).join("")}</select></div>
+    <div class="field" id="scDateField"><label>Date</label><input type="date" id="scDate" value="${esc(s.date || tomorrow)}"></div>
+    <div class="field"><label>Time</label><input type="time" id="scTime" value="${esc(s.time)}"></div>
+    <div class="field"><label>Agent</label><select id="scAgent">${agents.map(([k, a]) => `<option value="${k}" ${s.agent === k ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>
+    <div class="buttons">${id ? `<button class="danger left" onclick="deleteSchedule('${id}')">Delete</button><button class="text" onclick="runScheduleNow('${id}')">Run now</button>` : ""}
+      <button class="text" onclick="showSchedules()">Cancel</button><button class="filled" id="scSave">Save</button></div>`, bg => {
+    show(); bg.querySelector("#scRepeat").onchange = show;
+    bg.querySelector("#scSave").onclick = () => {
+      const prompt = $("scPrompt").value.trim();
+      if (!prompt) { toast("Write what to ask first."); return; }
+      const list = schedules();
+      const item = id ? list.find(x => x.id === id) : {id: uid(), enabled: true, created: now()};
+      Object.assign(item, {title: $("scTitle").value.trim() || prompt.split(/\s+/).slice(0, 5).join(" "), prompt, repeat: $("scRepeat").value,
+        day: +$("scDay").value, date: $("scDate").value, time: $("scTime").value || "07:00", agent: $("scAgent").value});
+      item.next_run = nextRun(item);
+      if (!id) list.push(item);
+      saveSchedules(list);
+      if (!B.notificationsAllowed()) B.askForNotifications();
+      toast(item.next_run ? nextText(item) : "That time has already passed");
+      showSchedules();
+    };
+  });
+}
+function deleteSchedule(id) {
+  if (!confirm("Delete this scheduled chat? Its past answers stay in your chats.")) return;
+  saveSchedules(schedules().filter(x => x.id !== id)); showSchedules();
+}
+function runScheduleNow(id) {
+  const list = schedules(), s = list.find(x => x.id === id);
+  closeSheet(); openChat(scheduleChat(s, list).id);
+  $("input").value = s.prompt; send();
+}
+
+// Runs one scheduled chat in the hidden copy of this page that Android starts on time.
+async function runScheduled(id) {
+  const list = schedules(), s = list.find(x => x.id === id);
+  if (!s) { B.scheduledDone("", "Scheduled chat", "That scheduled chat no longer exists."); return; }
+  // Work out the next run first, so a crash part way through can't make it repeat.
+  s.last_run = now();
+  if (s.repeat === "once") s.enabled = false;
+  s.next_run = nextRun(s, Date.now() + 60000);
+  saveSchedules(list);
+  chat = scheduleChat(s, list);
+  window.__scheduledRun = s;
+  try { await startJob(chat, {text: s.prompt, style: settings.style}); }
+  catch (e) { B.scheduledDone(chat.id, s.title, e.message); }
+}
+let lastError = "";
+function onJobDone(c, stopped) {
+  if (phoneSession) { phoneSession = false; B.keepAlive(false); B.bringToFront(); }
+  const s = window.__scheduledRun;
+  if (!s) return;
+  window.__scheduledRun = null;
+  const last = [...c.messages].reverse().find(m => m.role === "assistant" && m.content);
+  const plain = (last ? last.content : lastError || "Finished, with no answer.").replace(/[#*_`>|]/g, "").replace(/\n{2,}/g, "\n").trim();
+  B.scheduledDone(c.id, s.title, plain.slice(0, 700));
+}
+window.onResumeApp = () => { if (window.__sheetRedraw) window.__sheetRedraw(); renderSide(); };
+
 // ------------------------------------------------ start
 
 (function start() {
+  const runId = new URLSearchParams(location.search).get("run");
+  if (runId) { runScheduled(runId); return; }
   renderOpts(); renderSide();
   const chats = Store.listChats();
   if (chats.length) openChat(chats[0].id); else renderChat();

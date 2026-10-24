@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="phone_control_description">Lets Desk Agent use your apps for you when you ask it to in a chat: it reads what is on screen and can tap, type, scroll and open apps. It only acts during a chat you started, and everything stays on this phone.</string>
+</resources>
