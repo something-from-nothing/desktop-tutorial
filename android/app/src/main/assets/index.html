@@ -359,7 +359,7 @@ const B = window.Android || (() => {
     read: p => ls(p), write: (p, t) => (localStorage.setItem("da:" + p, t), true),
     list: dir => JSON.stringify(Object.keys(localStorage).filter(k => k.startsWith("da:" + dir + "/")).map(k => k.slice(dir.length + 4))),
     remove: p => (localStorage.removeItem("da:" + p), true),
-    models: () => ls("_models") || "{}", deleteModel: k => { const m = JSON.parse(ls("_models") || "{}"); delete m[k]; localStorage.setItem("da:_models", JSON.stringify(m)); return true; },
+    models: () => ls("_models") || "{}", builtInModels: () => ls("_builtin") || "[]", deleteModel: k => { const m = JSON.parse(ls("_models") || "{}"); delete m[k]; localStorage.setItem("da:_models", JSON.stringify(m)); return true; },
     cancelDownload: () => {}, freeSpace: () => 64e9, memory: () => 12e9, loaded: () => null,
     isBackground: () => false, phoneEnabled: () => localStorage.getItem("da:_phone") === "on", openPhoneSettings: () => localStorage.setItem("da:_phone", "on"),
     keepAlive: () => {}, bringToFront: () => {}, openWebsite: k => { window.__opened = k; }, exactAlarmsAllowed: () => true, openAlarmSettings: () => {}, notificationsAllowed: () => true,
@@ -1038,13 +1038,14 @@ function onBridgeEvent(ev) {
   if ($("modelsList")) drawModels();
 }
 function drawModels() {
-  const files = JSON.parse(B.models() || "{}"), ramGb = B.memory() / 1e9;
+  const files = JSON.parse(B.models() || "{}"), ramGb = B.memory() / 1e9, builtIn = JSON.parse(B.builtInModels ? B.builtInModels() : "[]");
   let lastMaker = "";
   $("modelsList").innerHTML = Object.entries(CATALOG).map(([k, m]) => {
     const heading = m.maker !== lastMaker ? `<div class="maker">${esc(m.maker)}</div>` : ""; lastMaker = m.maker;
     const dl = downloads[k], ready = !!files[k];
     let action;
-    if (ready) action = `<span class="ready">Ready</span><button class="icon-btn" onclick="delModel('${k}')" aria-label="Delete">${icon("trash", "width:19px;height:19px")}</button>`;
+    if (builtIn.includes(k)) action = `<span class="ready">Built in</span>`;
+    else if (ready) action = `<span class="ready">Ready</span><button class="icon-btn" onclick="delModel('${k}')" aria-label="Delete">${icon("trash", "width:19px;height:19px")}</button>`;
     else if (dl && !dl.status) action = `<span class="meta">${dl.total ? Math.round(100 * dl.done / dl.total) + "%" : "Starting"}</span><button class="tonal" onclick="B.cancelDownload('${k}')">Pause</button>`;
     else action = `<button class="filled" onclick="getModel('${k}')">${dl && dl.status === "error" ? "Retry" : dl && dl.done ? "Resume" : "Get"}</button>`;
     const bar = dl && !dl.status && dl.total ? `<div class="progress"><div style="width:${100 * dl.done / dl.total}%"></div></div>` : "";

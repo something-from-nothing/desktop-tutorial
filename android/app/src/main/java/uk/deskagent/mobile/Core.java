@@ -91,15 +91,14 @@ final class Core {
     synchronized int startEngine(String model, int context) throws Exception {
         if (model.equals(engineModel) && engine != null && engine.isAlive() && healthy(enginePort)) return enginePort;
         stopEngine();
-        File folder = safe(modelsDir(), model);
-        File[] files = folder.listFiles((d, n) -> n.endsWith(".gguf"));
-        if (files == null || files.length == 0) throw new Exception("The " + model + " model isn't downloaded.");
+        File modelFile = modelFile(model);
+        if (modelFile == null) throw new Exception("The " + model + " model isn't downloaded.");
         File exe = new File(app.getApplicationInfo().nativeLibraryDir, "libllamaserver.so");
         if (!exe.exists()) throw new Exception("The AI engine is missing from this build.");
         int port;
         try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
         int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 2));
-        ProcessBuilder pb = new ProcessBuilder(exe.getPath(), "-m", files[0].getPath(), "--host", "127.0.0.1",
+        ProcessBuilder pb = new ProcessBuilder(exe.getPath(), "-m", modelFile.getPath(), "--host", "127.0.0.1",
                 "--port", String.valueOf(port), "-c", String.valueOf(context), "--jinja", "-t", String.valueOf(threads));
         pb.redirectErrorStream(true);
         File log = new File(app.getFilesDir(), "engine.log");
@@ -117,6 +116,26 @@ final class Core {
         }
         stopEngine();
         throw new Exception("The model took too long to load.");
+    }
+
+    /**
+     * A model that came inside the app. The complete APK carries one as
+     * lib/arm64-v8a/libmodel_<key>.so, which Android unpacks to the native library
+     * folder when the app is installed, so it works with no download.
+     */
+    File bundledModel(String key) {
+        File f = new File(app.getApplicationInfo().nativeLibraryDir, "libmodel_" + key + ".so");
+        return f.exists() && f.length() > 1_000_000 ? f : null;
+    }
+
+    /** Where a model's file is: downloaded ones first, then one that came with the app. */
+    File modelFile(String key) {
+        try {
+            File[] files = safe(modelsDir(), key).listFiles((d, n) -> n.endsWith(".gguf"));
+            if (files != null && files.length > 0) return files[0];
+        } catch (Exception ignored) {
+        }
+        return bundledModel(key);
     }
 
     synchronized void stopEngine() {

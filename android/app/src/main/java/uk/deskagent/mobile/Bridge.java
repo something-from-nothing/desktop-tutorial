@@ -131,6 +131,24 @@ class Bridge {
             } catch (Exception ignored) {
             }
         }
+        // Models that came inside the app count as downloaded.
+        File[] libs = new File(context.getApplicationInfo().nativeLibraryDir).listFiles((x, n) -> n.startsWith("libmodel_") && n.endsWith(".so"));
+        if (libs != null) for (File f : libs) {
+            String key = f.getName().substring(9, f.getName().length() - 3);
+            try {
+                if (!out.has(key) && core.bundledModel(key) != null) out.put(key, f.length());
+            } catch (Exception ignored) {
+            }
+        }
+        return out.toString();
+    }
+
+    /** Models that came inside the app, which can't be deleted. */
+    @JavascriptInterface
+    public String builtInModels() {
+        JSONArray out = new JSONArray();
+        File[] libs = new File(context.getApplicationInfo().nativeLibraryDir).listFiles((x, n) -> n.startsWith("libmodel_") && n.endsWith(".so"));
+        if (libs != null) for (File f : libs) out.put(f.getName().substring(9, f.getName().length() - 3));
         return out.toString();
     }
 

@@ -49,27 +49,41 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      # Every build must be signed with the same key, or Android won't install a new
+      # version over the old one. The key lives in GitHub's build cache (never in the
+      # code). Saving it as the repo secrets ANDROID_KEYSTORE_BASE64 and
+      # ANDROID_KEY_PASSWORD instead makes it permanent; the cache is dropped if no
+      # build runs for 7 days.
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.deskagent-signing
+          key: deskagent-signing-key-v1
+
       - name: Set up the signing key
-        # Uses the key saved in the repo's secrets (ANDROID_KEYSTORE_BASE64 and
-        # ANDROID_KEY_PASSWORD) so every build can update the last one. Without them it
-        # makes a one off key: that APK works, but the next one won't install over it.
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          store="$RUNNER_TEMP/deskagent.keystore"
+          dir="$HOME/.deskagent-signing"
+          mkdir -p "$dir"
           if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASSWORD" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$store"
-            pass="$KEY_PASSWORD"
+            echo "$KEYSTORE_B64" | base64 -d > "$dir/secret.keystore"
+            store="$dir/secret.keystore"; pass="$KEY_PASSWORD"
           else
-            echo "::warning::No signing key in the repo secrets, so this APK uses a one off key."
-            pass=$(openssl rand -base64 24)
-            keytool -genkeypair -storetype PKCS12 -keystore "$store" -alias deskagent -keyalg RSA -keysize 3072 \
-              -validity 10950 -storepass "$pass" -keypass "$pass" -dname "CN=Desk Agent Mobile, C=GB"
+            store="$dir/deskagent.keystore"
+            if [ ! -s "$store" ] || [ ! -s "$dir/password" ]; then
+              echo "::warning::Making a new signing key. Phones with an older build must uninstall it once."
+              openssl rand -base64 24 > "$dir/password"
+              keytool -genkeypair -storetype PKCS12 -keystore "$store" -alias deskagent -keyalg RSA -keysize 3072 \
+                -validity 10950 -storepass "$(cat "$dir/password")" -keypass "$(cat "$dir/password")" -dname "CN=Desk Agent Mobile, C=GB"
+            fi
+            pass=$(cat "$dir/password")
           fi
           echo "::add-mask::$pass"
           echo "SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
           echo "SIGNING_PASSWORD=$pass" >> "$GITHUB_ENV"
+          keytool -list -keystore "$store" -storepass "$pass" | grep -i fingerprint
 
       - name: Build the APK
         run: gradle -p android assembleRelease --no-daemon
@@ -82,10 +96,45 @@ jobs:
           cp "$apk" DeskAgent.apk
           ls -la DeskAgent.apk
 
+      - name: Build the complete APK, with a model inside
+        # The Quick model (about 1 GB) goes in as a native library, which Android unpacks
+        # on install, so the app works straight away with nothing else to download.
+        run: |
+          repo=bartowski/Qwen2.5-1.5B-Instruct-GGUF
+          name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_k_m' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
+          echo "Packing in $repo/$name"
+          curl -fL --retry 3 -o android/app/src/main/jniLibs/arm64-v8a/libmodel_quick.so "https://huggingface.co/$repo/resolve/main/$name"
+          ls -la android/app/src/main/jniLibs/arm64-v8a/
+          gradle -p android assembleRelease --no-daemon
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify "$apk"
+          unzip -l "$apk" | grep libmodel_quick
+          cp "$apk" DeskAgent-Complete.apk
+          ls -la DeskAgent-Complete.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: DeskAgent-APK
           path: DeskAgent.apk
+
+      - name: Put both APKs on the download page
+        # A GitHub release, so the phone can download them in Chrome. Release files can be
+        # up to 2 GB; files kept in git can't be over 100 MB.
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mobile-latest
+          name: Desk Agent for Android
+          make_latest: true
+          overwrite_files: true
+          body: |
+            **DeskAgent-Complete.apk** has everything, including the Quick AI model: install it and it works, no other downloads.
+            **DeskAgent.apk** is the small version (about 40 MB); it downloads a model the first time you open it.
+            Built from ${{ github.sha }}.
+          files: |
+            DeskAgent-Complete.apk
+            DeskAgent.apk
 
       - name: Publish the APK to the apk branch
         # Gives a permanent download link: github.com/<owner>/<repo>/raw/apk/DeskAgent.apk

@@ -37,7 +37,13 @@ android {
 
     // The AI engine is a program, not a library. Android only lets apps run programs
     // from the native library folder, so it ships as lib*.so and must be unpacked there.
-    packaging { jniLibs { useLegacyPackaging = true } }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            // A model packed in as libmodel_*.so is data, not code: don't try to strip it.
+            keepDebugSymbols += "**/libmodel_*.so"
+        }
+    }
 
     // Release builds normally stop on lint warnings; this app is checked by its own tests instead.
     lint { checkReleaseBuilds = false }
