@@ -114,11 +114,11 @@ jobs:
           ls -la DeskAgent-Complete.apk
 
       - name: Build the phone APK, with the Tiny model inside
-        # Under 500 MB, so it can be sent straight to a phone as one file.
+        # Under 400 MB (Q4_0 instead of Q4_K_M), so it can be sent straight to a phone as one file.
         run: |
           rm android/app/src/main/jniLibs/arm64-v8a/libmodel_quick.so
           repo=bartowski/Qwen2.5-0.5B-Instruct-GGUF
-          name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_k_m' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
+          name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_0' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
           echo "Packing in $repo/$name"
           curl -fL --retry 3 -o android/app/src/main/jniLibs/arm64-v8a/libmodel_tiny.so "https://huggingface.co/$repo/resolve/main/$name"
           gradle -p android assembleRelease --no-daemon
@@ -128,6 +128,7 @@ jobs:
           unzip -l "$apk" | grep libmodel_tiny
           cp "$apk" DeskAgent-Phone.apk
           ls -la DeskAgent-Phone.apk
+          [ "$(stat -c%s DeskAgent-Phone.apk)" -lt 400000000 ] || echo "::warning::DeskAgent-Phone.apk is over 400 MB"
 
       - uses: actions/upload-artifact@v4
         with:
