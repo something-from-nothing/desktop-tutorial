@@ -340,6 +340,17 @@ const B = window.Android || (() => {
         if (method === "startEngine") return reply(enginePort);
         if (method === "httpGet") return reply(await (await fetch(a.url)).text());
         if (method === "saveDownload") return reply("Downloads/" + a.name);
+        if (method === "httpStream") {
+          const ctl = new AbortController(); (window.__aborts ||= {})[a.sid] = ctl;
+          try {
+            const res = await fetch(a.url, {method: "POST", headers: a.headers, body: a.body, signal: ctl.signal});
+            if (!res.ok) return reply({status: res.status, body: await res.text()});
+            const rd = res.body.getReader(), dec = new TextDecoder();
+            for (;;) { const ch = await rd.read(); if (ch.done) break; window.__bridgeEvent(JSON.stringify({type: "stream", sid: a.sid, data: dec.decode(ch.value, {stream: true})})); }
+            return reply({status: res.status});
+          } catch (e) { return ctl.signal.aborted ? reply({status: 200, cancelled: true}) : reply(null, String(e.message || e)); }
+        }
+        if (method === "cancelStream") { window.__aborts?.[a.sid]?.abort(); return reply(true); }
         if (method === "phoneRead") return reply("App on screen: Notes\n[1] button \"New note\"\n[2] text field hint \"Title\"");
         if (method.startsWith("phone")) return reply(`${method} ok`);
         if (method === "download") { reply(true); const m = JSON.parse(ls("_models") || "{}"); m[a.key] = 1e9; localStorage.setItem("da:_models", JSON.stringify(m));
@@ -399,27 +410,22 @@ async function loadModel(key) {
   return enginePort;
 }
 
-// Streams one reply from the engine's OpenAI style chat API on 127.0.0.1.
-async function engineChat(messages, {tools, onText, signal, maxTokens = 2048} = {}) {
-  const body = {messages, stream: true, max_tokens: maxTokens, temperature: 0.4};
-  if (tools && tools.length) body.tools = tools;
-  const res = await fetch(`http://127.0.0.1:${enginePort}/v1/chat/completions`,
-    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), signal});
-  if (!res.ok) throw new Error(`The AI engine said: ${(await res.text()).slice(0, 300)}`);
-  const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = "", content = "", finish = null; const calls = {};
-  for (;;) {
-    let chunk;
-    try { chunk = await reader.read(); } catch (e) { if (signal && signal.aborted) { finish = "stopped"; break; } throw e; }
-    if (chunk.done) break;
-    buf += dec.decode(chunk.value, {stream: true});
-    let nl;
-    while ((nl = buf.indexOf("\n")) >= 0) {
-      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-      if (!line.startsWith("data:")) continue;
+// Reads an OpenAI style stream (the phone's own engine, Gemini and Perplexity all use
+// this shape) one "data:" line at a time, and builds the finished assistant message.
+function openAIStream(onText) {
+  let content = "", finish = null, citations = null; const calls = {};
+  return {
+    line(raw) {
+      const line = raw.trim();
+      if (!line.startsWith("data:")) return;
       const data = line.slice(5).trim();
-      if (data === "[DONE]") continue;
-      const choice = JSON.parse(data).choices[0], delta = choice.delta || {};
+      if (!data || data === "[DONE]") return;
+      const json = JSON.parse(data);
+      if (json.citations) citations = json.citations;
+      if (json.search_results) citations = json.search_results.map(r => r.url);
+      const choice = (json.choices || [])[0];
+      if (!choice) return;
+      const delta = choice.delta || {};
       if (delta.content) { content += delta.content; onText && onText(delta.content); }
       for (const tc of delta.tool_calls || []) {
         const slot = calls[tc.index || 0] ||= {id: "", name: "", arguments: ""};
@@ -427,15 +433,183 @@ async function engineChat(messages, {tools, onText, signal, maxTokens = 2048} = 
         slot.name += tc.function?.name || ""; slot.arguments += tc.function?.arguments || "";
       }
       finish = choice.finish_reason || finish;
+    },
+    result() {
+      if (citations && citations.length) {
+        const sources = "\n\nSources:\n" + citations.slice(0, 8).map((u, i) => `${i + 1}. ${u}`).join("\n");
+        content += sources; onText && onText(sources);
+      }
+      const thoughts = [...content.matchAll(/<think>([\s\S]*?)(?:<\/think>|$)/g)].map(m => m[1].trim()).join("\n");
+      const message = {role: "assistant", content: content.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim()};
+      if (thoughts) message.thinking = thoughts;
+      const list = Object.keys(calls).sort((a, b) => a - b).map(k => calls[k]);
+      if (list.length) message.tool_calls = list.map(c => ({id: c.id || "call_" + uid(), type: "function", function: {name: c.name, arguments: c.arguments || "{}"}}));
+      return {message, finish};
+    },
+  };
+}
+const plainMessages = messages => messages.map(({claude_blocks, ...m}) => m);
+
+// Streams one reply from the phone's own engine on 127.0.0.1.
+async function engineChat(messages, {tools, onText, signal, maxTokens = 2048} = {}) {
+  const body = {messages: plainMessages(messages), stream: true, max_tokens: maxTokens, temperature: 0.4};
+  if (tools && tools.length) body.tools = tools;
+  const res = await fetch(`http://127.0.0.1:${enginePort}/v1/chat/completions`,
+    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), signal});
+  if (!res.ok) throw new Error(`The AI engine said: ${(await res.text()).slice(0, 300)}`);
+  const reader = res.body.getReader(), dec = new TextDecoder(), stream = openAIStream(onText);
+  let buf = "", stopped = false;
+  for (;;) {
+    let chunk;
+    try { chunk = await reader.read(); } catch (e) { if (signal && signal.aborted) { stopped = true; break; } throw e; }
+    if (chunk.done) break;
+    buf += dec.decode(chunk.value, {stream: true});
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) { stream.line(buf.slice(0, nl)); buf = buf.slice(nl + 1); }
+  }
+  const out = stream.result();
+  if (stopped) out.finish = "stopped";
+  return out;
+}
+
+// ---------------------------------------------------------------- online models
+
+// Optional. Each needs your own API key, costs money per message on that company's
+// account, and sends the chat to them. The phone's own models stay the default.
+const PROVIDERS = {
+  claude: {name: "Claude", company: "Anthropic", keyUrl: "https://console.anthropic.com/settings/keys", keyHint: "sk-ant-...",
+    url: "https://api.anthropic.com/v1/messages",
+    models: [["claude-opus-5-5", "Claude Opus 5.5"], ["claude-sonnet-5-5", "Claude Sonnet 5.5"], ["claude-haiku-5-5", "Claude Haiku 5.5"]]},
+  gemini: {name: "Gemini", company: "Google", keyUrl: "https://aistudio.google.com/apikey", keyHint: "AIza...",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", listUrl: "https://generativelanguage.googleapis.com/v1beta/openai/models",
+    models: [["gemini-2.5-flash", "Gemini 2.5 Flash"], ["gemini-2.5-pro", "Gemini 2.5 Pro"]]},
+  perplexity: {name: "Perplexity", company: "Perplexity", keyUrl: "https://www.perplexity.ai/account/api/keys", keyHint: "pplx-...",
+    url: "https://api.perplexity.ai/chat/completions", noTools: true,
+    models: [["sonar", "Perplexity Sonar"], ["sonar-pro", "Perplexity Sonar Pro"], ["sonar-reasoning-pro", "Perplexity Sonar Reasoning Pro"]]},
+};
+// Lets the browser tests point the providers at stand in servers.
+for (const [k, v] of new URLSearchParams(location.search)) if (k.endsWith("_url") && PROVIDERS[k.slice(0, -4)]) PROVIDERS[k.slice(0, -4)].url = v;
+function keys() { return readJSON("keys.json", {}); }
+// Every online model you can pick, as "cloud:provider:model" -> label.
+function onlineModels() {
+  const k = keys(), out = {};
+  for (const [p, info] of Object.entries(PROVIDERS)) {
+    if (!k[p]?.key) continue;
+    for (const [id, label] of (k[p].models || info.models)) out[`cloud:${p}:${id}`] = label;
+  }
+  return out;
+}
+const isOnline = ref => typeof ref === "string" && ref.startsWith("cloud:");
+function modelLabel(ref) { return isOnline(ref) ? (onlineModels()[ref] || ref.split(":")[2]) : (CATALOG[ref]?.label || ref); }
+
+// Online requests go through Android, which streams the reply back a few lines at a time.
+const streams = {};
+function httpStream(url, headers, body, onLine, signal) {
+  const sid = uid();
+  let buf = "";
+  streams[sid] = text => { buf += text; let nl; while ((nl = buf.indexOf("\n")) >= 0) { onLine(buf.slice(0, nl)); buf = buf.slice(nl + 1); } };
+  const cancel = () => bridge("cancelStream", {sid}).catch(() => {});
+  if (signal) signal.addEventListener("abort", cancel, {once: true});
+  return bridge("httpStream", {sid, url, headers, body: JSON.stringify(body)}).finally(() => {
+    if (buf) onLine(buf);
+    delete streams[sid];
+    if (signal) signal.removeEventListener("abort", cancel);
+  });
+}
+function providerError(name, status, text) {
+  let msg = text;
+  try { const j = JSON.parse(text); msg = j.error?.message || j.error || j.message || text; } catch (e) {}
+  if (status === 401 || status === 403) return `${name} didn't accept the API key. Check it in Settings, Online models.`;
+  if (status === 429) return `${name} says you've hit a limit or run out of credit. Try again later or check your account.`;
+  return `${name} said: ${String(msg).slice(0, 300)}`;
+}
+
+async function cloudChat(ref, messages, {tools, onText, signal, maxTokens = 8000} = {}) {
+  const [, provider, model] = ref.split(":"), info = PROVIDERS[provider], key = keys()[provider]?.key;
+  if (!key) throw new Error(`Add your ${info.name} API key in Settings, Online models, first.`);
+  if (provider === "claude") return claudeChat(model, key, messages, {tools, onText, signal, maxTokens});
+  let msgs = plainMessages(messages);
+  if (info.noTools) msgs = flattenTools(msgs);
+  const body = {model, messages: msgs, stream: true, max_tokens: maxTokens};
+  if (tools && tools.length && !info.noTools) body.tools = tools;
+  const stream = openAIStream(onText);
+  const res = await httpStream(info.url, {"Authorization": `Bearer ${key}`, "Content-Type": "application/json"}, body, l => stream.line(l), signal);
+  if (res.status >= 400) throw new Error(providerError(info.name, res.status, res.body || ""));
+  const out = stream.result();
+  if (signal && signal.aborted) out.finish = "stopped";
+  return out;
+}
+// Perplexity can't take tool calls and wants user and assistant turns to alternate.
+function flattenTools(messages) {
+  const out = [];
+  for (const m of messages) {
+    let role = m.role, content = m.content || "";
+    if (role === "tool") { role = "user"; content = `(Tool result)\n${content}`; }
+    if (role === "assistant" && m.tool_calls) content = (content ? content + "\n" : "") + m.tool_calls.map(c => `(Used ${c.function.name})`).join("\n");
+    const last = out[out.length - 1];
+    if (last && last.role === role && role !== "system") last.content += "\n\n" + content;
+    else out.push({role, content});
+  }
+  if (out[1] && out[1].role === "assistant") out.splice(1, 0, {role: "user", content: "(Earlier conversation)"});
+  return out;
+}
+
+// Claude through Anthropic's Messages API. Claude's own reply blocks (including its
+// reasoning) are kept on each message and sent back unchanged, as the API requires.
+async function claudeChat(model, key, messages, {tools, onText, signal, maxTokens}) {
+  const system = messages.filter(m => m.role === "system").map(m => m.content).join("\n\n");
+  const out = [];
+  const push = (role, block) => {
+    const last = out[out.length - 1];
+    if (last && last.role === role) last.content.push(...block); else out.push({role, content: [...block]});
+  };
+  for (const m of messages) {
+    if (m.role === "user") push("user", [{type: "text", text: m.content || "(empty)"}]);
+    else if (m.role === "tool") push("user", [{type: "tool_result", tool_use_id: m.tool_call_id, content: m.content || "(no output)"}]);
+    else if (m.role === "assistant") {
+      if (m.claude_blocks) { push("assistant", m.claude_blocks); continue; }
+      const blocks = [];
+      if (m.content) blocks.push({type: "text", text: m.content});
+      for (const c of m.tool_calls || []) { let input = {}; try { input = JSON.parse(c.function.arguments || "{}"); } catch (e) {} blocks.push({type: "tool_use", id: c.id, name: c.function.name, input}); }
+      if (blocks.length) push("assistant", blocks);
     }
   }
-  const thoughts = [...content.matchAll(/<think>([\s\S]*?)(?:<\/think>|$)/g)].map(m => m[1].trim()).join("\n");
-  const message = {role: "assistant", content: content.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim()};
-  if (thoughts) message.thinking = thoughts;
-  const list = Object.keys(calls).sort((a, b) => a - b).map(k => calls[k]);
-  if (list.length) message.tool_calls = list.map(c => ({id: c.id || "call_" + uid(), type: "function", function: {name: c.name, arguments: c.arguments || "{}"}}));
+  const body = {model, max_tokens: maxTokens, stream: true, system, messages: out};
+  if (tools && tools.length) body.tools = tools.map(t => ({name: t.function.name, description: t.function.description, input_schema: t.function.parameters, eager_input_streaming: true}));
+  const headers = {"x-api-key": key, "anthropic-version": "2026-10-21", "Content-Type": "application/json"};
+  // If Claude's safety checks decline, Anthropic retries on a suitable other model instead of refusing.
+  if (/^claude-(opus|sonnet|fable)/.test(model)) { body.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
+
+  const blocks = []; let stop = null;
+  const res = await httpStream(PROVIDERS.claude.url, headers, body, raw => {
+    const line = raw.trim();
+    if (!line.startsWith("data:")) return;
+    const ev = JSON.parse(line.slice(5));
+    if (ev.type === "content_block_start") blocks[ev.index] = {...ev.content_block, _json: ""};
+    else if (ev.type === "content_block_delta") {
+      const b = blocks[ev.index], d = ev.delta;
+      if (d.type === "text_delta") { b.text = (b.text || "") + d.text; onText && onText(d.text); }
+      else if (d.type === "thinking_delta") b.thinking = (b.thinking || "") + d.thinking;
+      else if (d.type === "signature_delta") b.signature = (b.signature || "") + d.signature;
+      else if (d.type === "input_json_delta") b._json += d.partial_json;
+    } else if (ev.type === "content_block_stop") {
+      const b = blocks[ev.index];
+      if (b && b.type === "tool_use" && b._json) { try { b.input = JSON.parse(b._json); } catch (e) { b.input = {}; b._bad = b._json; } }
+    } else if (ev.type === "message_delta" && ev.delta?.stop_reason) stop = ev.delta.stop_reason;
+    else if (ev.type === "error") throw new Error(providerError("Claude", 500, JSON.stringify(ev)));
+  }, signal);
+  if (res.status >= 400) throw new Error(providerError("Claude", res.status, res.body || ""));
+  const kept = blocks.filter(Boolean).map(({_json, _bad, ...b}) => b);
+  if (stop === "refusal") throw new Error("Claude declined to answer this one.");
+  const message = {role: "assistant", content: kept.filter(b => b.type === "text").map(b => b.text).join("").trim(), claude_blocks: kept};
+  const uses = blocks.filter(b => b && b.type === "tool_use");
+  if (uses.length) message.tool_calls = uses.map(b => ({id: b.id, type: "function", function: {name: b.name, arguments: b._bad || JSON.stringify(b.input || {})}}));
+  const finish = signal && signal.aborted ? "stopped" : {end_turn: "stop", tool_use: "tool_calls", max_tokens: "length"}[stop] || stop;
   return {message, finish};
 }
+
+// One reply from whichever model the job is using.
+function modelChat(ref, messages, opts) { return isOnline(ref) ? cloudChat(ref, messages, opts) : engineChat(messages, opts); }
 
 // ================================================================ tools
 
@@ -541,6 +715,7 @@ function modelMessages(messages, system) {
     const m2 = {role: m.role, content: m.content || ""};
     if (m.tool_calls) m2.tool_calls = m.tool_calls;
     if (m.tool_call_id) m2.tool_call_id = m.tool_call_id;
+    if (m.claude_blocks) m2.claude_blocks = m.claude_blocks;
     if (m.role === "user" && m.attachments?.length) m2.content += m.attachments.map(a => `\n\n<attached_file name="${a.name}">\n${a.text}\n</attached_file>`).join("");
     return m2;
   });
@@ -551,10 +726,20 @@ function modelMessages(messages, system) {
   while (start > 0 && out[start].role === "tool") start--;
   return [{role: "system", content: system}, ...out.slice(start)];
 }
+function whereRunning(prompt) {
+  if (!job || !isOnline(job.model)) return prompt;
+  return prompt.replace("an assistant running entirely on the user's own phone. Nothing they say leaves the phone, apart from web searches.",
+    `an assistant app on the user's phone, answering through ${modelLabel(job.model)} online.`);
+}
 function chooseModel(agent, text, first) {
   const ready = installed();
-  if (!ready.length) throw new Error("No AI model is downloaded yet. Open Models to get one.");
   const wanted = settings.model !== "auto" ? settings.model : agent.model || "auto";
+  if (isOnline(wanted)) {
+    if (onlineModels()[wanted]) return [wanted, null];
+    if (!ready.length) throw new Error(`${modelLabel(wanted)} isn't set up. Add its API key in Settings, Online models.`);
+    return [ready.includes("general") ? "general" : ready[0], `${modelLabel(wanted)} isn't set up`];
+  }
+  if (!ready.length) throw new Error(Object.keys(onlineModels()).length ? "Pick an online model in Options, or download a model in Models." : "No AI model is downloaded yet. Open Models to get one.");
   if (wanted !== "auto") return ready.includes(wanted) ? [wanted, null] : [ready.includes("general") ? "general" : ready[0], `${wanted} isn't downloaded`];
   if (CODE_WORDS.test(text) && ready.includes("coder")) return ["coder", "it looks like a coding job"];
   if (first && text.split(/\s+/).length < 12 && !ACTION_WORDS.test(text) && ready.includes("quick")) return ["quick", "it's a short question"];
@@ -585,9 +770,10 @@ async function runJob(c, body) {
     const lastUser = [...c.messages].reverse().find(m => m.role === "user");
     const [m, reason] = chooseModel(agent, lastUser.content || "", c.messages.filter(x => x.role === "user").length === 1);
     model = m;
-    if (reason) emit({type: "status", chat: c.id, text: `Using ${CATALOG[m]?.label || m} because ${reason}`});
-    await loadModel(m);
-    const system = systemPrompt(agentId, agent, c, {style: body.style, think: body.think});
+    if (reason) emit({type: "status", chat: c.id, text: `Using ${modelLabel(m)} because ${reason}`});
+    job.model = m;
+    if (!isOnline(m)) await loadModel(m);
+    const system = whereRunning(systemPrompt(agentId, agent, c, {style: body.style, think: body.think}));
     await agentLoop(c, c.messages, system, toolsFor(agent), null);
   } catch (e) {
     if (!(job && job.controller.signal.aborted)) emit({type: "error", chat: c.id, text: e.message || String(e)});
@@ -607,7 +793,7 @@ async function agentLoop(c, messages, system, tools, sub) {
   for (let i = 0; i < steps; i++) {
     if (job.controller.signal.aborted) return "Stopped by the user.";
     emit({type: "assistant_start", chat: c.id, sub});
-    const {message, finish} = await engineChat(modelMessages(messages, system),
+    const {message, finish} = await modelChat(job.model, modelMessages(messages, system),
       {tools, signal: job.controller.signal, onText: t => emit({type: "token", chat: c.id, sub, text: t})});
     messages.push(message);
     bumpStats(s => s.words_written = (s.words_written || 0) + (message.content || "").split(/\s+/).filter(Boolean).length);
@@ -665,7 +851,7 @@ async function askAgent(c, callId, a) {
   const agent = agents[id];
   emit({type: "agent_start", chat: c.id, id: callId, agent: agent.name});
   const messages = [{role: "user", content: a.task}];
-  const answer = await agentLoop(c, messages, systemPrompt(id, agent, c, {allowDelegate: false}), toolsFor(agent, false), callId);
+  const answer = await agentLoop(c, messages, whereRunning(systemPrompt(id, agent, c, {allowDelegate: false})), toolsFor(agent, false), callId);
   emit({type: "agent_end", chat: c.id, id: callId});
   const log = messages.slice(1).map(m => ({role: m.role, content: (m.content || "").slice(0, 3000), tools: (m.tool_calls || []).map(t => t.function.name)}));
   return [`${agent.name} replied:\n${answer}`, {agent: agent.name, agent_log: log}];
@@ -768,6 +954,7 @@ function renderMode() {
   const parts = [], agents = allAgents(), agent = currentAgent();
   if (agent !== "assistant") parts.push(agents[agent]?.name || agent);
   if (settings.model !== "auto" && installed().includes(settings.model)) parts.push(CATALOG[settings.model].label);
+  if (onlineModels()[settings.model]) parts.push(modelLabel(settings.model) + " (online)");
   if (settings.style !== "normal") parts.push(settings.style[0].toUpperCase() + settings.style.slice(1));
   if (settings.think) parts.push("Think first");
   $("mode").textContent = parts.join(" · ");
@@ -983,7 +1170,10 @@ function showOptions() {
   const firstLine = s => (s || "").split(/(?<=\.)\s/)[0];
   sheet(`<h2>Options</h2>
     <h3>Agent</h3>${rows(Object.entries(agents).map(([k, a]) => [k, a.name, a.blurb || firstLine(a.instructions)]), agent, "pickAgent")}
-    <h3>Model</h3>${rows([["auto", "Auto", "Picks the right model for each message"], ...ready.map(k => [k, CATALOG[k].label, CATALOG[k].detail])], ready.includes(settings.model) ? settings.model : "auto", "pickModel")}
+    <h3>Model</h3>${rows([["auto", "Auto", "Picks the right model on this phone for each message"], ...ready.map(k => [k, CATALOG[k].label, `${CATALOG[k].detail} · on this phone`]),
+      ...Object.entries(onlineModels()).map(([k, l]) => [k, l, `Online · sends the chat to ${PROVIDERS[k.split(":")[1]].company}`])],
+      ready.includes(settings.model) || onlineModels()[settings.model] ? settings.model : "auto", "pickModel")}
+    ${Object.keys(onlineModels()).length ? "" : `<p class="sub" style="margin:8px 4px 0">Want Claude, Gemini or Perplexity too? Add a key in <a href="#" onclick="showSettings(); return false">Settings</a>.</p>`}
     <h3>Style</h3>${rows(Object.keys(STYLES).map(s => [s, s[0].toUpperCase() + s.slice(1), ""]), settings.style, "pickStyle")}
     <h3>Reasoning</h3><div class="list"><label class="item"><span class="grow">Think first<small>Slower, but better on tricky questions</small></span>${toggle("think", settings.think)}</label></div>
     <div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`, bg => {
@@ -996,6 +1186,7 @@ function pickStyle(k) { saveSettings({style: k}); renderMode(); showOptions(); }
 
 const downloads = {};
 function onBridgeEvent(ev) {
+  if (ev.type === "stream") { streams[ev.sid]?.(ev.data); return; }
   if (ev.type === "stop") { stopJob(); return; }
   if (ev.type !== "download") return;
   downloads[ev.key] = ev;
@@ -1049,7 +1240,7 @@ function editAgent(key, copy) {
   sheet(`<h2>${isEdit ? "Edit agent" : "New agent"}</h2>
     <div class="field"><label>Name</label><input type="text" id="agName" value="${esc(copy ? a.name + " copy" : a.name)}" placeholder="For example: Chef"></div>
     <div class="field"><label>Instructions</label><textarea id="agInstr" rows="5" placeholder="Who it is and how it should work">${esc(a.instructions)}</textarea></div>
-    <div class="field"><label>Model</label><select id="agModel">${[["auto", "Auto"], ...Object.entries(CATALOG).map(([k, m]) => [k, m.label])].map(([k, l]) => `<option value="${k}" ${a.model === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="field"><label>Model</label><select id="agModel">${[["auto", "Auto"], ...Object.entries(CATALOG).map(([k, m]) => [k, m.label]), ...Object.entries(onlineModels()).map(([k, l]) => [k, l + " (online)"])].map(([k, l]) => `<option value="${k}" ${a.model === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
     <div class="field"><label>Tools</label><div class="list checks">${Object.entries(GROUP_LABELS).map(([g, [t, s]]) => `<label class="item"><span class="grow">${t}<small>${s}</small></span>${toggle("tool-" + g, a.tools.includes(g)).replace("<input", `<input value="${g}"`)}</label>`).join("")}</div></div>
     <div class="buttons">${isEdit ? `<button class="danger left" onclick="delAgent('${key}')">Delete</button>` : ""}<button class="text" onclick="showAgents()">Cancel</button><button class="filled" id="agSave">Save</button></div>`, bg => {
     bg.querySelector("#agSave").onclick = () => {
@@ -1102,7 +1293,9 @@ function showSettings() {
       <div class="item"><span class="grow">Steps per reply<small>How many searches or actions it can take</small></span>
         <select id="seSteps" style="width:auto">${[6, 12, 20].map(n => `<option ${settings.max_steps === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
     </div>
-    <p class="sub" style="margin-top:14px">Everything stays on this phone. Uninstalling the app deletes it.</p>
+    <h3>Online models</h3>
+    <div class="list">${Object.entries(PROVIDERS).map(([p, info]) => `<button class="item" onclick="editProvider('${p}')"><span class="grow">${info.name}<small>${keys()[p]?.key ? "Connected" : `Add your ${info.company} API key`}</small></span>${icon("chev").replace('class="i"', 'class="i chev" style="color:var(--faint)"')}</button>`).join("")}</div>
+    <p class="sub" style="margin-top:14px">Chats with the models on this phone never leave it. Online models send that chat to their company, and charge your account with them.</p>
     <div class="buttons"><button class="text" onclick="closeSheet()">Cancel</button><button class="filled" id="seSave">Save</button></div>`, bg => {
     bg.querySelector("#seSave").onclick = () => {
       const ctx = +$("seCtx").value;
@@ -1285,6 +1478,59 @@ function onJobDone(c, stopped) {
   B.scheduledDone(c.id, s.title, plain.slice(0, 700));
 }
 window.onResumeApp = () => { if (window.__sheetRedraw) window.__sheetRedraw(); renderSide(); };
+
+// ------------------------------------------------ online model keys
+
+function editProvider(p) {
+  const info = PROVIDERS[p], saved = keys()[p] || {};
+  const chosen = new Set((saved.models || info.models).map(m => m[0]));
+  let available = saved.available || info.models;
+  const drawModels = () => $("pvModels").innerHTML = available.map(([id, label]) => `<label class="item"><span class="grow">${esc(label)}<small>${esc(id)}</small></span>
+    ${toggle("pv-" + id, chosen.has(id)).replace("<input", `<input value="${esc(id)}" data-label="${esc(label)}"`)}</label>`).join("");
+  sheet(`<h2>${info.name}</h2>
+    <p class="sub">Uses your own ${info.company} account. Every message you send to ${info.name} is charged there, and the chat is sent to ${info.company}. Get a key at <a href="${info.keyUrl}">${info.keyUrl.replace("https://", "")}</a>.</p>
+    <div class="field"><label>API key</label><input type="password" id="pvKey" value="${esc(saved.key || "")}" placeholder="${info.keyHint}" autocomplete="off"></div>
+    <div class="field"><label>Models to show</label><div class="list" id="pvModels"></div>
+      ${p === "gemini" ? `<button class="tonal" style="margin-top:8px" id="pvRefresh">Get the latest list from Google</button>` : ""}</div>
+    <p class="sub" id="pvStatus"></p>
+    <div class="buttons">${saved.key ? `<button class="danger left" id="pvRemove">Remove</button>` : ""}<button class="text" onclick="showSettings()">Cancel</button>
+      <button class="tonal" id="pvTest">Test</button><button class="filled" id="pvSave">Save</button></div>`, bg => {
+    drawModels();
+    const collect = () => {
+      const picked = [...bg.querySelectorAll("#pvModels input:checked")].map(i => [i.value, i.dataset.label]);
+      return {key: $("pvKey").value.trim(), models: picked.length ? picked : info.models.slice(0, 1), available};
+    };
+    const save = () => { const k = keys(); k[p] = collect(); writeJSON("keys.json", k); };
+    bg.querySelector("#pvSave").onclick = () => { if (!$("pvKey").value.trim()) { toast("Paste your API key first."); return; } save(); toast(`${info.name} connected`); showSettings(); };
+    bg.querySelector("#pvRemove")?.addEventListener("click", () => {
+      const k = keys(); delete k[p]; writeJSON("keys.json", k);
+      if (isOnline(settings.model) && settings.model.split(":")[1] === p) saveSettings({model: "auto"});
+      renderMode(); showSettings();
+    });
+    bg.querySelector("#pvTest").onclick = async () => {
+      if (!$("pvKey").value.trim()) { toast("Paste your API key first."); return; }
+      const before = keys()[p]; save();
+      const model = collect().models[0][0];
+      $("pvStatus").textContent = "Testing...";
+      try {
+        const {message} = await cloudChat(`cloud:${p}:${model}`, [{role: "user", content: "Reply with just the word OK."}], {maxTokens: 400});
+        $("pvStatus").textContent = `Working. ${collect().models[0][1]} replied: ${message.content.slice(0, 60)}`;
+      } catch (e) { $("pvStatus").textContent = e.message; }
+      const k = keys(); if (before) k[p] = before; else delete k[p]; writeJSON("keys.json", k);
+    };
+    bg.querySelector("#pvRefresh")?.addEventListener("click", async () => {
+      const key = $("pvKey").value.trim(); if (!key) { toast("Paste your API key first."); return; }
+      $("pvStatus").textContent = "Fetching the list...";
+      try {
+        const list = JSON.parse(await bridge("httpGet", {url: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=" + encodeURIComponent(key)}));
+        available = (list.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent") && /gemini/i.test(m.name))
+          .map(m => [m.name.replace(/^models\//, ""), m.displayName || m.name]);
+        bg.querySelectorAll("#pvModels input:checked").forEach(i => chosen.add(i.value));
+        drawModels(); $("pvStatus").textContent = `${available.length} Gemini models available.`;
+      } catch (e) { $("pvStatus").textContent = "Couldn't get the list: " + e.message; }
+    });
+  });
+}
 
 // ------------------------------------------------ start
 
