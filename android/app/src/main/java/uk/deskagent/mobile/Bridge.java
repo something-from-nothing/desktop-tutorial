@@ -272,20 +272,39 @@ class Bridge {
     /** A scheduled chat finished: tell the user, then let the runner stop. */
     @JavascriptInterface
     public void scheduledDone(String chatId, String title, String text) {
-        if (notificationsAllowed()) {
-            Intent open = new Intent(context, MainActivity.class).putExtra("chat", chatId).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            PendingIntent tap = PendingIntent.getActivity(context, chatId.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            android.app.Notification n = new android.app.Notification.Builder(context, Core.CHANNEL_RESULTS)
-                    .setSmallIcon(R.drawable.ic_notify)
-                    .setContentTitle(title)
-                    .setContentText(text)
-                    .setStyle(new android.app.Notification.BigTextStyle().bigText(text))
-                    .setContentIntent(tap)
-                    .setAutoCancel(true)
-                    .build();
-            context.getSystemService(NotificationManager.class).notify(chatId.hashCode(), n);
-        }
+        if (!title.isEmpty()) post(chatId, chatId, title, text);
         if (onScheduledDone != null) ui.post(onScheduledDone);
+    }
+
+    /**
+     * A notification: a finished reply, a reminder or a briefing. Tapping it opens
+     * the chat (if chatId isn't empty). key keeps different ones from replacing each other.
+     */
+    @JavascriptInterface
+    public void notify(String key, String chatId, String title, String text) {
+        post(key, chatId, title, text);
+    }
+
+    /** True while the app is on screen, so a finished reply only pings when you've left it. */
+    @JavascriptInterface
+    public boolean onScreen() {
+        return MainActivity.onScreen;
+    }
+
+    private void post(String key, String chatId, String title, String text) {
+        if (!notificationsAllowed()) return;
+        Intent open = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (chatId != null && !chatId.isEmpty()) open.putExtra("chat", chatId);
+        PendingIntent tap = PendingIntent.getActivity(context, key.hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        android.app.Notification n = new android.app.Notification.Builder(context, Core.CHANNEL_RESULTS)
+                .setSmallIcon(R.drawable.ic_notify)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(new android.app.Notification.BigTextStyle().bigText(text))
+                .setContentIntent(tap)
+                .setAutoCancel(true)
+                .build();
+        context.getSystemService(NotificationManager.class).notify(key.hashCode(), n);
     }
 
     // ------------------------------------------------ slow calls, answered through window.__bridgeReply(id)
@@ -314,6 +333,9 @@ class Bridge {
                         break;
                     case "httpGet":
                         resolve(id, new String(Core.get(a.getString("url"), 3_000_000), StandardCharsets.UTF_8), null);
+                        break;
+                    case "httpPost":
+                        resolve(id, Core.post(a.getString("url"), a.optJSONObject("headers"), a.getString("body")).toString(), null);
                         break;
                     case "saveDownload":
                         resolve(id, core.saveToDownloads(a.getString("name"), a.getString("content"), a.optString("mime", "text/plain")), null);

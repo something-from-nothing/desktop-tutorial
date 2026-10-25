@@ -254,6 +254,47 @@ final class Core {
         }
     }
 
+    /**
+     * Sends a POST, for MCP servers. Returns {status, type, session, body}: the page
+     * needs the content type (JSON or a stream of events) and the MCP session id.
+     */
+    static JSONObject post(String url, JSONObject headers, String body) throws Exception {
+        if (!url.startsWith("https://") && !url.startsWith("http://127.0.0.1") && !url.startsWith("http://localhost")) {
+            throw new Exception("Connectors must use https.");
+        }
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setRequestMethod("POST");
+        c.setDoOutput(true);
+        c.setConnectTimeout(20_000);
+        c.setReadTimeout(120_000);
+        c.setRequestProperty("User-Agent", "DeskAgentMobile");
+        if (headers != null) {
+            for (java.util.Iterator<String> it = headers.keys(); it.hasNext(); ) {
+                String k = it.next();
+                c.setRequestProperty(k, headers.getString(k));
+            }
+        }
+        try (OutputStream out = c.getOutputStream()) {
+            out.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        int status = c.getResponseCode();
+        InputStream in = status >= 400 ? c.getErrorStream() : c.getInputStream();
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        if (in != null) {
+            try (InputStream s = in) {
+                byte[] b = new byte[1 << 15];
+                int n;
+                while ((n = s.read(b)) > 0 && buf.size() < 3_000_000) buf.write(b, 0, n);
+            }
+        }
+        JSONObject out = new JSONObject();
+        out.put("status", status);
+        out.put("type", c.getContentType() == null ? "" : c.getContentType());
+        out.put("session", c.getHeaderField("Mcp-Session-Id") == null ? "" : c.getHeaderField("Mcp-Session-Id"));
+        out.put("body", buf.toString("UTF-8"));
+        return out;
+    }
+
     /** Saves a file the user asked for into the phone's Downloads folder. */
     String saveToDownloads(String name, String content, String mime) throws Exception {
         String clean = name.replaceAll("[^\\w .()-]", "_");
