@@ -8,6 +8,20 @@ rm -rf site && mkdir site
 WEBLLM=0.2.85
 curl -fsSL -o webllm.tgz "https://registry.npmjs.org/@mlc-ai/web-llm/-/web-llm-$WEBLLM.tgz"
 tar xzf webllm.tgz package/lib/index.js && mv package/lib/index.js site/webllm.js && rm -rf package webllm.tgz
+# Older iPads (A12X/A12Z) allow 16 KB of GPU working memory per workgroup; WebLLM asks
+# for 32 KB and refuses to start. Ask for no more than the device allows instead.
+python3 - <<'PY'
+p = "site/webllm.js"
+s = open(p).read()
+old = "const requiredMaxComputeWorkgroupStorageSize = 32 << 10;"
+assert s.count(old) == 1, "WebLLM changed: check the workgroup storage request"
+open(p, "w").write(s.replace(old, "const requiredMaxComputeWorkgroupStorageSize = Math.min(32 << 10, adapter.limits.maxComputeWorkgroupStorageSize);"))
+PY
+# wllama runs the model on the processor when the graphics chip can't.
+WLLAMA=3.6.1
+curl -fsSL -o wllama.tgz "https://registry.npmjs.org/@wllama/wllama/-/wllama-$WLLAMA.tgz"
+tar xzf wllama.tgz package/esm/index.js package/esm/wasm/wllama.wasm
+mv package/esm/index.js site/wllama.js && mv package/esm/wasm/wllama.wasm site/wllama.wasm && rm -rf package wllama.tgz
 cp ipad.js sw.js manifest.webmanifest icon-*.png site/
 python3 - <<'PY'
 src = open("../android/app/src/main/assets/index.html").read()
