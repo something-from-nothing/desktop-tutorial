@@ -16,7 +16,8 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
-        ndk { abiFilters += "arm64-v8a" }
+        // Phones are arm64; DESKAGENT_ABI=x86_64 makes the Chromebook build (Intel and AMD).
+        ndk { abiFilters += (System.getenv("DESKAGENT_ABI") ?: "arm64-v8a") }
     }
 
     signingConfigs {

@@ -130,6 +130,36 @@ jobs:
           ls -la DeskAgent-Phone.apk
           [ "$(stat -c%s DeskAgent-Phone.apk)" -lt 400000000 ] || echo "::warning::DeskAgent-Phone.apk is over 400 MB"
 
+      - name: Build the Chromebook APK (Intel and AMD), with the Tiny model inside
+        # Chromebooks run Android apps on x86_64, so the engine is built again for that.
+        # No AVX, so it runs on every Intel and AMD Chromebook, including Celerons.
+        run: |
+          cmake -S llama.cpp -B llama-build-x86 -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DGGML_NATIVE=OFF \
+            -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_AVX512=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_BMI2=OFF \
+            -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+          cmake --build llama-build-x86 --target llama-server -j 4
+          libs=android/app/src/main/jniLibs
+          mkdir -p "$libs/x86_64"
+          cp llama-build-x86/bin/llama-server "$libs/x86_64/libllamaserver.so"
+          mv "$libs/arm64-v8a/libmodel_tiny.so" "$libs/x86_64/libmodel_tiny.so"
+          file "$libs/x86_64/libllamaserver.so"
+          if "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d "$libs/x86_64/libllamaserver.so" \
+               | grep NEEDED | grep -vE 'lib(c|m|dl|log)\.so'; then
+            echo "The engine needs a library that isn't on every Chromebook"; exit 1
+          fi
+          DESKAGENT_ABI=x86_64 gradle -p android assembleRelease --no-daemon
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify "$apk"
+          unzip -l "$apk" | grep lib/
+          if unzip -l "$apk" | grep -q arm64; then echo "Chromebook APK has phone libraries in it"; exit 1; fi
+          cp "$apk" DeskAgent-Chromebook.apk
+          ls -la DeskAgent-Chromebook.apk
+          [ "$(stat -c%s DeskAgent-Chromebook.apk)" -lt 400000000 ] || echo "::warning::DeskAgent-Chromebook.apk is over 400 MB"
+
       - uses: actions/upload-artifact@v4
         with:
           name: DeskAgent-APK
@@ -148,11 +178,13 @@ jobs:
           body: |
             **DeskAgent-Complete.apk** has everything, including the Quick AI model: install it and it works, no other downloads.
             **DeskAgent-Phone.apk** has the Tiny AI model inside (under 500 MB): install it and it works.
+            **DeskAgent-Chromebook.apk** is for Intel and AMD Chromebooks, with the Tiny AI model inside.
             **DeskAgent.apk** is the small version (about 40 MB); it downloads a model the first time you open it.
             Built from ${{ github.sha }}.
           files: |
             DeskAgent-Complete.apk
             DeskAgent-Phone.apk
+            DeskAgent-Chromebook.apk
             DeskAgent.apk
 
       - name: Publish the APK to the apk branch
@@ -177,6 +209,8 @@ jobs:
           sha256sum ../DeskAgent-Complete.apk | cut -d' ' -f1 > DeskAgent-Complete.apk.sha256
           split -b 90m -d -a 2 ../DeskAgent-Phone.apk DeskAgent-Phone.apk.part
           sha256sum ../DeskAgent-Phone.apk | cut -d' ' -f1 > DeskAgent-Phone.apk.sha256
+          split -b 90m -d -a 2 ../DeskAgent-Chromebook.apk DeskAgent-Chromebook.apk.part
+          sha256sum ../DeskAgent-Chromebook.apk | cut -d' ' -f1 > DeskAgent-Chromebook.apk.sha256
           ls -la
           git init -b apk-complete
           git config user.name "github-actions[bot]"
