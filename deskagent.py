@@ -109,6 +109,14 @@ BUILTIN_AGENTS = {
         "name": "Planner", "model": "general", "tools": ["delegate"],
         "instructions": "You break big jobs into clear steps, then hand each step to the right agent with ask_agent and pull their results together into one answer.",
     },
+    "photo": {
+        "name": "Photo maker", "model": AUTO, "tools": ["media"],
+        "instructions": "You make pictures. Turn what the user asks for into one detailed English image prompt: the subject, setting, style (photo, painting, cartoon and so on), lighting, colours and framing. Then call create_image. Make one picture unless they ask for more. Afterwards say in one short line what you made and offer one change. If they ask for a change, make a new picture with an updated prompt.",
+    },
+    "video": {
+        "name": "Video maker", "model": AUTO, "tools": ["artifacts"],
+        "instructions": "You make short animated videos as a web page the user can play and save as a video file. Always use create_artifact with kind html, and build it like this: one <canvas id=\"video\" width=\"1280\" height=\"720\" data-seconds=\"N\"> filling the page on a dark background, where N is the length in seconds (usually 6 to 15); draw every frame with JavaScript in a requestAnimationFrame loop, timed from performance.now() and looping every N seconds. Use only shapes, gradients and large clear text drawn on the canvas: no images, videos, fonts or anything loaded from the internet. Plan the scenes first (for example a title, three points, an ending), ease movements in and out, and keep text big and on screen long enough to read. Afterwards tell the user to click Save as video to keep it.",
+    },
 }
 
 
@@ -478,6 +486,11 @@ TOOL_GROUPS = {
                "language": {"type": "string", "description": "For code: python, javascript and so on."},
                "content": {"type": "string"}}, ["title", "kind", "content"]),
     ],
+    "media": [
+        _tool("create_image", "Make a picture from a detailed description and show it to the user.",
+              {"prompt": {"type": "string", "description": "Detailed English description of the picture"},
+               "shape": {"type": "string", "enum": ["square", "portrait", "landscape"]}}, ["prompt"]),
+    ],
     "ask": [
         _tool("ask_user", "Ask the user a question as a poll they answer by clicking. Use it when the request could mean different things or a real choice is theirs to make, instead of guessing. One question per poll, 2 to 4 short options; they can also type their own answer.",
               {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}},
@@ -489,6 +502,7 @@ TOOL_GROUPS = {
     ],
 }
 GROUP_PROMPTS = {
+    "media": "You can make pictures with create_image.",
     "ask": "When it's unclear what the user wants, or a choice is theirs to make, ask with ask_user (a click poll) instead of guessing. Ask one poll, then wait for the answer.",
     "code": "You can write and run code in the projects folder ({workspace}). For a new program, make a subfolder, write the files, run them to check they work, fix what breaks, then say where it is and how to start it.",
     "desktop": "You can open apps, files and web addresses, switch windows, type and press keys. You can't see the screen, so use list_windows to check what is open and focus_window before typing.",
@@ -497,7 +511,29 @@ GROUP_PROMPTS = {
     "delegate": "Agents you can hand work to with ask_agent: {agents}.",
 }
 TOOL_GROUP_OF = {t["function"]["name"]: g for g, tools in TOOL_GROUPS.items() for t in tools}
-HARMLESS = {"list_files", "read_file", "list_windows", "web_search", "read_webpage", "create_artifact", "ask_agent", "ask_user"}
+HARMLESS = {"list_files", "read_file", "list_windows", "web_search", "read_webpage", "create_artifact", "ask_agent", "ask_user", "create_image"}
+IMAGE_SIZES = {"square": (1024, 1024), "portrait": (768, 1152), "landscape": (1152, 768)}
+
+
+def pictures_dir() -> Path:
+    folder = Path.home() / "Pictures" / "Desk Agent"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def make_image(prompt: str, shape: str) -> dict:
+    """Gets a picture from Pollinations (a free image service that needs no key) and
+    saves it in Pictures\\Desk Agent. Returns what the chat shows."""
+    w, h = IMAGE_SIZES.get(shape, IMAGE_SIZES["square"])
+    url = (f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt[:900])}"
+           f"?width={w}&height={h}&seed={secrets.randbelow(10**9)}&nologo=true")
+    req = urllib.request.Request(url, headers={"User-Agent": "DeskAgent"})
+    with urllib.request.urlopen(req, timeout=120) as res:
+        data = res.read()
+    name = re.sub(r"[^\w ]+", "", " ".join(prompt.split()[:6])).strip() or "picture"
+    path = pictures_dir() / f"{name} {datetime.now():%Y-%m-%d %H%M%S}.jpg"
+    path.write_bytes(data)
+    return {"id": uuid.uuid4().hex[:8], "url": url, "prompt": prompt, "w": w, "h": h, "path": str(path)}
 
 
 def uk_now() -> str:
@@ -1028,6 +1064,10 @@ class Brain:
                 result, extra = self._artifact(chat, args)
             elif name == "ask_agent":
                 result, extra = self._ask_agent(chat, call["id"], args)
+            elif name == "create_image":
+                image = make_image(args["prompt"], args.get("shape", "square"))
+                chat.setdefault("images", []).append(image)
+                result, extra = f"The picture is on screen for the user, and saved as {image['path']}.", {"image": image["id"]}
             elif name == "ask_user":
                 result = "The poll is on screen. Wait for the user's answer in their next message."
             elif self.mcp.owns(name):
@@ -1469,6 +1509,14 @@ class Server:
             path = folder / (name + ext)
             path.write_text(body["content"], encoding="utf-8")
             return {"path": str(path)}
+        if head == "video-save" and method == "POST":
+            folder = Path.home() / "Videos" / "Desk Agent"
+            folder.mkdir(parents=True, exist_ok=True)
+            name = re.sub(r"[^\w\- ]+", "", body["title"]).strip() or "video"
+            ext = ".mp4" if "mp4" in body["type"] else ".webm"
+            path = folder / (name + ext)
+            path.write_bytes(base64.b64decode(body["data"]))
+            return {"path": str(path)}
         if head == "open-folder" and method == "POST":
             target = {"workspace": workspace_path(cfg, "."), "models": models_dir(), "data": app_dir()}[body["which"]]
             if sys.platform == "win32":
@@ -1679,6 +1727,9 @@ body.panel-open #top .lbl { display: none; } body.panel-open #top .short { displ
 .codeblock .bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 10px; background: #ffffff10; }
 .codeblock .bar button { background: transparent; color: var(--code-text); border: 1px solid #ffffff30; padding: 1px 8px; font-size: 12px; }
 .codeblock pre { margin: 0; padding: 12px; overflow-x: auto; } .codeblock code { background: none; padding: 0; color: inherit; }
+.picture { margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; max-width: 560px; background: var(--panel); }
+.picture img { display: block; width: 100%; height: auto; }
+.picture figcaption { padding: 8px 12px; font-size: 13px; color: var(--dim); }
 .poll { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; background: var(--panel); }
 .poll-q { font-weight: 600; margin-bottom: 8px; }
 .poll-opts { display: flex; flex-direction: column; gap: 6px; }
@@ -1804,6 +1855,7 @@ ol.steps li { margin: 6px 0; }
     <span class="tabs"><button id="tabPreview" onclick="artTab('preview')">Preview</button><button id="tabCode" onclick="artTab('code')">Code</button></span>
     <button onclick="copyText(currentArt.content)">Copy</button>
     <button onclick="downloadArt()">Download</button>
+    <button id="saveVideoBtn" onclick="saveVideo()" hidden>Save as video</button>
     <button onclick="saveArt()">Save</button>
     <button class="ghost" onclick="closePanel()">&#10005;</button>
   </div>
@@ -1958,6 +2010,11 @@ function toolHtml(call, result) {
     return art ? artifactCard(art) : "";
   }
   if (name === "ask_user") return pollHtml(call.id, args, !result || isLatestPoll(call.id));
+  if (name === "create_image") {
+    const img = (chat.images || []).find(x => result && x.id === result.image);
+    if (!img) return `<details class="tool"><summary>${result ? "Couldn't make the picture" : "Making a picture..."}</summary><pre>${esc(result ? result.content : "")}</pre></details>`;
+    return `<figure class="picture"><img src="${esc(img.url)}" alt="${esc(img.prompt)}" width="${img.w}" height="${img.h}" loading="lazy"><figcaption>${esc(img.prompt)}<br><small>Saved in Pictures\\Desk Agent</small></figcaption></figure>`;
+  }
   if (name === "ask_agent") {
     const log = (result?.agent_log || []).map(e => (e.content ? `<div class="md">${md(e.content)}</div>` : "") + (e.tools?.length ? `<div class="chip">used ${esc(e.tools.join(", "))}</div>` : "")).join("");
     return `<div class="agentbox"><div class="agentname">&#129302; ${esc(result?.agent || args.agent)} agent</div><details class="tool"><summary>Task: ${esc((args.task || "").slice(0, 120))}</summary><div style="padding: 4px 10px">${log || "<pre>" + esc(result?.content || "") + "</pre>"}</div></details></div>`;
@@ -2106,7 +2163,8 @@ function artTab(mode) {
   if (a.kind === "markdown") { body.innerHTML = `<div class="md">${md(a.content)}</div>`; return; }
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
-  frame.srcdoc = a.kind === "svg" ? `<body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh">${a.content}</body>` : a.content;
+  $("saveVideoBtn").hidden = !isVideo(a);
+  frame.srcdoc = isVideo(a) ? a.content + VIDEO_RECORDER : a.kind === "svg" ? `<body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh">${a.content}</body>` : a.content;
   body.innerHTML = ""; body.appendChild(frame);
 }
 function downloadArt() {
@@ -2114,6 +2172,32 @@ function downloadArt() {
   const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([a.content])); link.download = `${a.title}.${ext}`; link.click();
 }
 async function saveArt() { const r = await api("POST", "/api/artifact-save", currentArt); toast("Saved to " + r.path); }
+// Video maker pages draw on <canvas id="video">. Saving records that canvas inside the
+// page (it's sandboxed, so this page can't reach in) and sends the file back here.
+const isVideo = a => a.kind === "html" && /<canvas[^>]*id=["']video["']/.test(a.content);
+const VIDEO_RECORDER = `<script>addEventListener("message", e => {
+  if (e.data !== "record") return;
+  const c = document.getElementById("video"), secs = Math.min(+c.dataset.seconds || 8, 60);
+  const type = ["video/mp4", "video/webm;codecs=vp9", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type || !c.captureStream) { parent.postMessage({videoError: "This browser can't record video."}, "*"); return; }
+  const rec = new MediaRecorder(c.captureStream(30), {mimeType: type, videoBitsPerSecond: 6e6}), parts = [];
+  rec.ondataavailable = ev => parts.push(ev.data);
+  rec.onstop = () => { const r = new FileReader(); r.onload = () => parent.postMessage({video: r.result, type: rec.mimeType}, "*"); r.readAsDataURL(new Blob(parts, {type: rec.mimeType})); };
+  rec.start(); setTimeout(() => rec.stop(), secs * 1000);
+});<\/script>`;
+function saveVideo() {
+  const frame = document.querySelector("#artBody iframe");
+  if (!frame) return;
+  const secs = +((currentArt.content.match(/data-seconds=["']?(\d+)/) || [])[1] || 8);
+  toast(`Recording the video (${secs} seconds)...`);
+  frame.contentWindow.postMessage("record", "*");
+}
+addEventListener("message", async e => {
+  if (!e.data || !(e.data.video || e.data.videoError) || !currentArt) return;
+  if (e.data.videoError) return toast(e.data.videoError);
+  try { const r = await api("POST", "/api/video-save", {title: currentArt.title, type: e.data.type, data: e.data.video.split(",")[1]}); toast("Saved to " + r.path); }
+  catch (err) { toast("Couldn't save: " + err.message); }
+});
 
 // ------------------------------------------------ dialogs
 function modal(html, onReady) {
