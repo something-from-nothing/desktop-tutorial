@@ -1,0 +1,13 @@
+# The Chromebook's top row sends F1 to F10; give them their printed meanings.
+# Back, Forward, Refresh, Full screen, Overview (opens the menu), Brightness, Mute, Volume.
+evdev:atkbd:dmi:*
+ KEYBOARD_KEY_3b=back
+ KEYBOARD_KEY_3c=forward
+ KEYBOARD_KEY_3d=refresh
+ KEYBOARD_KEY_3e=f11
+ KEYBOARD_KEY_3f=leftmeta
+ KEYBOARD_KEY_40=brightnessdown
+ KEYBOARD_KEY_41=brightnessup
+ KEYBOARD_KEY_42=mute
+ KEYBOARD_KEY_43=volumedown
+ KEYBOARD_KEY_44=volumeup

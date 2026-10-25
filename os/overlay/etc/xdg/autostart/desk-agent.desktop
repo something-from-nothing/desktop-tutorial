@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Desk Agent
+Comment=Your AI, running on this computer
+Exec=/opt/deskos/desk-agent
+Icon=/opt/deskos/desk-agent.png
+StartupWMClass=DeskAgent
+Categories=Utility;

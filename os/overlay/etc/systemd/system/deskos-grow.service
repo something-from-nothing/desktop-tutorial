@@ -1,0 +1,10 @@
+[Unit]
+Description=Grow Desk OS to fill its drive
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/deskos/grow-root
+
+[Install]
+WantedBy=multi-user.target

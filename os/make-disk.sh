@@ -41,7 +41,7 @@ dd if="$work/esp.img" of="$disk" bs=512 seek=2048 conv=notrunc status=none
 dd if="$work/root.img" of="$disk" bs=512 seek="$start2" conv=notrunc status=none
 sgdisk -v "$disk"
 ls -la "$disk"
-zip -1 DeskOS.zip "$disk"
+zip -9 DeskOS.zip "$disk"
 ls -la DeskOS.zip
-# GitHub release files can't be over 2 GB.
-[ "$(stat -c%s DeskOS.zip)" -lt 2000000000 ] || { echo "DeskOS.zip is over 2 GB"; exit 1; }
+# GitHub release files can't be over 2 GiB.
+[ "$(stat -c%s DeskOS.zip)" -lt 2147000000 ] || { echo "DeskOS.zip is over 2 GiB"; exit 1; }

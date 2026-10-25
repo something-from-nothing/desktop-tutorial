@@ -1,0 +1,14 @@
+#!/bin/bash
+# Runs as root (through pkexec): copies disk $1 onto disk $2 and grows the copy to fill it.
+set -euo pipefail
+src=$1 target=$2
+[ -b "$src" ] && [ -b "$target" ] && [ "$src" != "$target" ]
+part() { [[ $1 =~ [0-9]$ ]] && echo "${1}p$2" || echo "$1$2"; }
+umount "$(part "$target" 1)" "$(part "$target" 2)" 2>/dev/null || true
+dd if="$src" of="$target" bs=4M conv=fsync status=none
+sgdisk -e "$target"
+partprobe "$target" || true
+sleep 2
+growpart "$target" 2 || true
+e2fsck -fy "$(part "$target" 2)" || true
+resize2fs "$(part "$target" 2)"

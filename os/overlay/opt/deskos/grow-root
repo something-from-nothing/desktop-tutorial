@@ -1,0 +1,8 @@
+#!/bin/bash
+# First start: grow Desk OS to fill the USB stick or drive it's on, then switch off.
+src=$(findmnt -no SOURCE /)
+disk=/dev/$(lsblk -no PKNAME "$src")
+sgdisk -e "$disk" || true
+partprobe "$disk" || true
+growpart "$disk" 2 && resize2fs "$src"
+systemctl disable deskos-grow.service

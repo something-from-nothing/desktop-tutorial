@@ -1,7 +1,0 @@
-
-# Desk OS: the first screen goes straight into Desk Agent.
-if [ "$(tty)" = /dev/tty1 ]; then
-  /opt/deskos/session
-  sleep 2
-  exit
-fi

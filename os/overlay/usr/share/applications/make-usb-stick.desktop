@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Make a USB stick
+Comment=Write an OS file (.iso or .img) to a USB stick
+Exec=gnome-disks
+Icon=media-removable
+Categories=System;Utility;

@@ -1,0 +1,9 @@
+#!/bin/bash
+# First time the desktop starts: put the Desk OS wallpaper on every screen.
+done="$HOME/.config/deskos-first-login-done"
+[ -e "$done" ] && exit 0
+sleep 3
+for prop in $(xfconf-query -c xfce4-desktop -l | grep last-image); do
+  xfconf-query -c xfce4-desktop -p "$prop" -s /usr/share/backgrounds/deskos/violet.png
+done
+touch "$done"

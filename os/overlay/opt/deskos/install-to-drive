@@ -1,0 +1,22 @@
+#!/bin/bash
+# Copies the Desk OS that's running from a USB stick onto this computer's own drive,
+# replacing what's there (on a Chromebook, ChromeOS). Asks twice first.
+title="Install Desk OS"
+src=/dev/$(lsblk -no PKNAME "$(findmnt -no SOURCE /)")
+# The computer's own drive: the biggest fixed disk that isn't the one we're running from.
+target=$(lsblk -bdnpo NAME,RM,TYPE,SIZE | awk -v s="$src" '$2==0 && $3=="disk" && $1!=s && $4>8e9 {print $4, $1}' | sort -n | tail -1 | cut -d" " -f2)
+if [ -z "$target" ]; then
+  zenity --info --title="$title" --text="Desk OS is already on this computer's own drive, or there's no other drive to put it on."
+  exit 0
+fi
+size=$(lsblk -dno SIZE "$target")
+zenity --question --title="$title" --width=460 --ok-label="Continue" --cancel-label="Cancel" \
+  --text="This puts Desk OS on this computer's own drive ($target, $size).\n\n<b>Everything on that drive is erased, including ChromeOS and its files.</b>\n\nYour Desk Agent chats on this USB stick aren't copied." || exit 0
+zenity --question --title="$title" --width=460 --ok-label="Erase and install" --cancel-label="Cancel" \
+  --text="Are you sure? This can't be undone.\n\nAfterwards, on a Chromebook: at the white screen press <b>Ctrl + L</b> to start Desk OS. Never press Space there." || exit 0
+pkexec /opt/deskos/install-helper "$src" "$target" 2>&1 | zenity --progress --pulsate --auto-close --no-cancel --title="$title" --width=460 --text="Installing. This takes 5 to 15 minutes..."
+if [ "${PIPESTATUS[0]}" = 0 ]; then
+  zenity --info --title="$title" --width=460 --text="Desk OS is installed.\n\nSwitch off, take out the USB stick, and switch on. At the white screen press <b>Ctrl + L</b>."
+else
+  zenity --error --title="$title" --width=460 --text="The install didn't finish. Nothing you need was changed on the USB stick. Try again, or ask Desk Agent for help."
+fi

@@ -1,0 +1,7 @@
+#!/bin/bash
+# Desk Agent in its own window. The page is served on 127.0.0.1:8000 and the AI engine
+# runs on 127.0.0.1:8080 (both started at boot). Web security is off for this window
+# only, so the AI's web search can read pages.
+exec chromium --app="http://127.0.0.1:8000/index.html?engine=8080&builtin=qwen3small" \
+  --class=DeskAgent --user-data-dir="$HOME/.local/share/desk-agent" --no-first-run \
+  --disable-web-security --password-store=basic --window-size=1100,760 "$@"

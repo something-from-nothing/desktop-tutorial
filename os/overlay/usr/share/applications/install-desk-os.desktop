@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install Desk OS
+Comment=Copy Desk OS from the USB stick onto this computer's own drive
+Exec=/opt/deskos/install-to-drive
+Icon=system-software-install
+Categories=System;
