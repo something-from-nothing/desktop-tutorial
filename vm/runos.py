@@ -1,6 +1,7 @@
 """Run OS: try an operating system in a window on Windows, without touching Windows.
 
-Double click RunOS.exe to run Desk OS (DeskOS.zip in Downloads), drag any .zip, .bin,
+Double click RunOS.exe to run Desk OS (DeskOS.zip, or its numbered pieces, in
+Downloads), drag any .zip, .bin,
 .img or .iso onto it, or pick one when it asks. The first time, it installs QEMU (a
 free program that runs a computer inside a window) into the user's own folder.
 """
@@ -46,7 +47,10 @@ def pick_file():
     """The OS to run: what was dropped on the EXE, else DeskOS.zip in Downloads, else ask."""
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         return Path(sys.argv[1])
-    desk = Path.home() / "Downloads" / "DeskOS.zip"
+    downloads = Path.home() / "Downloads"
+    desk = downloads / "DeskOS.zip"
+    if not desk.exists():
+        join_pieces(downloads)
     if desk.exists():
         return desk
     import tkinter
@@ -59,6 +63,38 @@ def pick_file():
     if not chosen:
         raise SystemExit("No OS chosen.")
     return Path(chosen)
+
+
+def join_pieces(folder):
+    """Desk OS sent in a chat comes as DeskOS.zip.001, .002 and so on, because chats
+    limit file size. Put them back together into DeskOS.zip."""
+    pieces = sorted(folder.glob("DeskOS.zip.[0-9][0-9][0-9]"))
+    if not pieces:
+        return
+    numbers = [int(p.suffix[1:]) for p in pieces]
+    if numbers != list(range(1, len(numbers) + 1)):
+        missing = sorted(set(range(1, max(numbers) + 1)) - set(numbers))
+        raise SystemExit("Some Desk OS pieces are missing from Downloads: "
+                         + ", ".join(f"DeskOS.zip.{n:03d}" for n in missing))
+    say(f"Joining the {len(pieces)} Desk OS pieces into DeskOS.zip.")
+    target = folder / "DeskOS.zip"
+    part = folder / "DeskOS.zip.joining"
+    with open(part, "wb") as out:
+        for piece in pieces:
+            with open(piece, "rb") as f:
+                while chunk := f.read(1 << 22):
+                    out.write(chunk)
+    try:
+        with zipfile.ZipFile(part) as z:
+            z.namelist()
+    except zipfile.BadZipFile:
+        part.unlink()
+        raise SystemExit("The pieces didn't join into a working file. One of them didn't download fully: "
+                         "delete the DeskOS.zip pieces in Downloads and download them again.")
+    part.rename(target)
+    for piece in pieces:
+        piece.unlink()
+    say("Joined. The pieces have been tidied away.")
 
 
 def disk_from_zip(path):
