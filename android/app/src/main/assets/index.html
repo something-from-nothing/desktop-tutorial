@@ -394,7 +394,7 @@ const B = window.Android || (() => {
           // slow computer: wait until it answers rather than failing the first message.
           for (let i = 0; i < 450; i++) {
             try { if ((await fetch(`http://127.0.0.1:${enginePort}/health`)).ok) { setStatus(""); return reply(enginePort); } } catch (e) {}
-            if (builtin) setStatus("Loading the AI. The first time can take a few minutes.");
+            if (builtin && i === 0) setStatus("Loading the AI. The first time can take a few minutes.");
             await new Promise(r => setTimeout(r, 2000));
           }
           return reply(null, "The AI didn't start. Restart the computer and try again.");
