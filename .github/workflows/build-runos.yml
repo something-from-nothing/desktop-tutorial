@@ -1,0 +1,39 @@
+name: Build Run OS
+
+on:
+  push:
+    branches: [main]
+    paths: ["vm/**", ".github/workflows/build-runos.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build RunOS.exe
+        run: |
+          pip install pyinstaller
+          pyinstaller --noconfirm --onefile --console --name RunOS --icon icon.ico vm/runos.py
+      - name: Check it installs QEMU and finds the firmware
+        run: |
+          dist\RunOS.exe --check
+          if (-not (Test-Path "$env:LOCALAPPDATA\RunOS\qemu\share\edk2-x86_64-code.fd")) { throw "QEMU firmware missing" }
+      - name: Publish to the runos branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          New-Item -ItemType Directory -Force publish | Out-Null
+          Copy-Item dist\RunOS.exe publish\
+          Set-Location publish
+          git init -b runos
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add RunOS.exe
+          git commit -m "RunOS.exe built from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" runos
