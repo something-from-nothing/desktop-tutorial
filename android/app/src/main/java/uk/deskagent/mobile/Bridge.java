@@ -316,7 +316,13 @@ class Bridge {
                         resolve(id, new String(Core.get(a.getString("url"), 3_000_000), StandardCharsets.UTF_8), null);
                         break;
                     case "saveDownload":
-                        resolve(id, core.saveToDownloads(a.getString("name"), a.getString("content"), a.optString("mime", "text/plain")), null);
+                        // base64: a picture or video the page made; otherwise text.
+                        resolve(id, a.optBoolean("base64")
+                                ? core.saveBytes(a.getString("name"), android.util.Base64.decode(a.getString("content"), android.util.Base64.DEFAULT), a.optString("mime", "application/octet-stream"))
+                                : core.saveToDownloads(a.getString("name"), a.getString("content"), a.optString("mime", "text/plain")), null);
+                        break;
+                    case "saveUrl":
+                        resolve(id, core.saveBytes(a.getString("name"), Core.get(a.getString("url"), 30_000_000), a.optString("mime", "image/jpeg")), null);
                         break;
                     case "phoneRead":
                         resolve(id, PhoneControl.readScreen(), null);

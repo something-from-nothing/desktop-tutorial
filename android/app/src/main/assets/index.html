@@ -110,6 +110,10 @@ a { color: var(--accent); text-decoration: none; }
 .codeblock pre { margin: 0; padding: 4px 14px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5; } .codeblock code { background: none; padding: 0; }
 
 /* quiet one line steps: tool use, reasoning, helper agents */
+.picture { margin: 10px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; max-width: 520px; }
+.picture img { display: block; width: 100%; height: auto; background: var(--raised); }
+.picture figcaption { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; font-size: 13px; color: var(--dim); }
+.picture figcaption span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .poll { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin: 10px 0; }
 .poll-q { font-weight: 500; margin-bottom: 10px; }
 .poll-opts { display: flex; flex-direction: column; gap: 8px; }
@@ -257,6 +261,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     <b id="artTitle"></b>
     <span class="seg"><button id="tabPreview" onclick="artTab('preview')">Preview</button><button id="tabCode" onclick="artTab('code')">Code</button></span>
     <button class="icon-btn" onclick="copyText(currentArt.content)" aria-label="Copy"><svg class="i"><use href="#i-copy"/></svg></button>
+    <button class="tonal" id="saveVideoBtn" onclick="saveVideo()" hidden>Save as video</button>
     <button class="icon-btn" onclick="saveArt()" aria-label="Save to Downloads"><svg class="i"><use href="#i-save"/></svg></button>
   </div>
   <div class="body" id="artBody"></div>
@@ -351,6 +356,10 @@ const BUILTIN_AGENTS = {
     instructions: "You use apps on the user's phone for them. Start with read_screen to see what is on screen, then take one action at a time (open_app, tap, type_text, scroll, press) and read the screen again after each one to check it worked. Use the item numbers from the latest read_screen. Before anything that sends a message, posts, buys, pays, books or deletes, stop and ask the user to confirm in your reply instead of doing it. When the job is done, say what you did."},
   planner: {name: "Planner", blurb: "Splits big jobs between the agents", model: "general", tools: ["delegate"],
     instructions: "You break big jobs into clear steps, then hand each step to the right agent with ask_agent and pull their results together into one answer."},
+  photo: {name: "Photo maker", blurb: "Makes pictures from a description", model: "auto", tools: ["media"],
+    instructions: "You make pictures. Turn what the user asks for into one detailed English image prompt: the subject, setting, style (photo, painting, cartoon and so on), lighting, colours and framing. Then call create_image. Make one picture unless they ask for more. Afterwards say in one short line what you made and offer one change. If they ask for a change, make a new picture with an updated prompt."},
+  video: {name: "Video maker", blurb: "Makes short animated videos", model: "auto", tools: ["artifacts"],
+    instructions: "You make short animated videos as a web page the user can play and save as a video file. Always use create_artifact with kind html, and build it like this: one <canvas id=\"video\" width=\"1280\" height=\"720\" data-seconds=\"N\"> filling the page on a dark background, where N is the length in seconds (usually 6 to 15); draw every frame with JavaScript in a requestAnimationFrame loop, timed from performance.now() and looping every N seconds. Use only shapes, gradients and large clear text drawn on the canvas: no images, videos, fonts or anything loaded from the internet. Plan the scenes first (for example a title, three points, an ending), ease movements in and out, and keep text big and on screen long enough to read. Afterwards tell the user to tap Save as video to keep it."},
 };
 // Other assistants, opened on their official websites (no API keys; you sign in there).
 const WEBSITES = {
@@ -406,9 +415,15 @@ const B = window.Android || (() => {
           return reply(null, "The AI didn't start. Restart the computer and try again.");
         }
         if (method === "httpGet") return reply(await (await fetch(a.url)).text());
+        if (method === "saveUrl") {
+          const blob = await (await fetch(a.url)).blob(), link = document.createElement("a");
+          link.href = URL.createObjectURL(blob); link.download = a.name; link.click();
+          return reply("Downloads/" + a.name);
+        }
         if (method === "saveDownload" && builtin) {
           const link = document.createElement("a");
-          link.href = URL.createObjectURL(new Blob([a.content], {type: a.mime || "text/plain"}));
+          const data = a.base64 ? Uint8Array.from(atob(a.content), ch => ch.charCodeAt(0)) : a.content;
+          link.href = URL.createObjectURL(new Blob([data], {type: a.mime || "text/plain"}));
           link.download = a.name; link.click();
           return reply("Downloads/" + a.name);
         }
@@ -533,6 +548,10 @@ const TOOL_GROUPS = {
     tool("press", "Press one of the phone's own buttons.", {button: {type: "string", enum: ["back", "home", "recents", "notifications"]}}, ["button"]),
     tool("list_apps", "List the names of the apps installed on the phone.", {}, []),
   ],
+  media: [
+    tool("create_image", "Make a picture from a detailed description and show it to the user.",
+      {prompt: {type: "string", description: "Detailed English description of the picture"}, shape: {type: "string", enum: ["square", "portrait", "landscape"]}}, ["prompt"]),
+  ],
   ask: [
     tool("ask_user", "Ask the user a question as a poll they answer by tapping. Use it when the request could mean different things or a real choice is theirs to make, instead of guessing. One question per poll, 2 to 4 short options; they can also type their own answer.",
       {question: {type: "string"}, options: {type: "array", items: {type: "string"}}, multiple: {type: "boolean", description: "true if they may pick more than one"}}, ["question", "options"]),
@@ -543,6 +562,7 @@ const TOOL_GROUPS = {
   ],
 };
 const GROUP_PROMPTS = {
+  media: "You can make pictures with create_image.",
   ask: "When it's unclear what the user wants, or a choice is theirs to make, ask with ask_user (a tap poll) instead of guessing. Ask one poll, then wait for the answer.",
   web: "You can search the web and read pages. Say where information came from.",
   artifacts: "Use create_artifact to show finished web pages, drawings, documents or code to the user.",
@@ -738,6 +758,7 @@ async function runTool(c, call, sub) {
     else if (name === "create_artifact") [result, extra] = makeArtifact(c, args);
     else if (name === "ask_agent") [result, extra] = await askAgent(c, call.id, args);
     else if (name === "ask_user") result = "The poll is on screen. Wait for the user's answer in their next message.";
+    else if (name === "create_image") [result, extra] = await makeImage(c, args);
     else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
   } catch (e) { result = `ERROR: ${e.message || e}`; }
   if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
@@ -929,12 +950,49 @@ function toolHtml(call, result) {
     return art ? artifactCard(art) : "";
   }
   if (name === "ask_user") return pollHtml(call.id, a, !result || isLatestPoll(call.id));
+  if (name === "create_image") {
+    const img = (chat.images || []).find(x => result && x.id === result.image);
+    return img ? imageHtml(img) : step("image", "Making a picture...", "");
+  }
   if (name === "ask_agent") {
     const log = (result?.agent_log || []).map(e => e.content ? md(e.content) : "").join("") || esc(result?.content || "Working...");
     return `<div class="agentbox">${step("person", `Asked ${result?.agent || a.agent}: ${a.task || ""}`, log, "", true)}</div>`;
   }
   return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
 }
+// ------------------------------------------------ pictures
+
+// Pictures come from Pollinations, a free online image service that needs no key.
+// The chat keeps the address, not the picture, so chats stay small.
+const IMAGE_SIZES = {square: [1024, 1024], portrait: [768, 1152], landscape: [1152, 768]};
+async function makeImage(c, a) {
+  if (!navigator.onLine) return ["ERROR: making pictures needs the internet, and this device is offline. Tell the user.", {}];
+  const [w, h] = IMAGE_SIZES[a.shape] || IMAGE_SIZES.square, seed = Math.floor(Math.random() * 1e9);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(a.prompt.slice(0, 900))}?width=${w}&height=${h}&seed=${seed}&nologo=true`;
+  // Wait for it to be made, so a failure is reported instead of showing a broken picture.
+  const ok = await new Promise(done => {
+    const im = new Image();
+    const timer = setTimeout(() => done(false), 120000);
+    im.onload = () => { clearTimeout(timer); done(true); };
+    im.onerror = () => { clearTimeout(timer); done(false); };
+    im.src = url;
+  });
+  if (!ok) return ["ERROR: the picture service didn't answer. It may be busy: tell the user to try again in a minute.", {}];
+  const img = {id: uid(), url, prompt: a.prompt, w, h};
+  (c.images ||= []).push(img);
+  return ["The picture is on screen for the user.", {image: img.id}];
+}
+const imgs = {};
+function imageHtml(img) {
+  imgs[img.id] = img;
+  return `<figure class="picture"><img src="${esc(img.url)}" alt="${esc(img.prompt)}" width="${img.w}" height="${img.h}" loading="lazy">
+    <figcaption><span>${esc(img.prompt)}</span><button class="icon-btn" onclick="saveImage('${img.id}')" aria-label="Save picture">${icon("save")}</button></figcaption></figure>`;
+}
+async function saveImage(id) {
+  const img = imgs[id], name = img.prompt.split(/\s+/).slice(0, 5).join(" ").replace(/[^\w ]/g, "") + ".jpg";
+  try { toast("Saved to " + await bridge("saveUrl", {url: img.url, name, mime: "image/jpeg"})); } catch (e) { toast("Couldn't save: " + e.message); }
+}
+
 // A poll from ask_user: tap an option to answer it (multiple: pick, then Send).
 const polls = {};
 function isLatestPoll(id) {
@@ -961,7 +1019,7 @@ function pollSend(id) {
   $("input").value = [...p.picked].sort().map(i => p.options[i]).join(", ");
   send();
 }
-function toolIcon(name) { return name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : "globe"; }
+function toolIcon(name) { return name === "create_image" ? "image" : name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : "globe"; }
 function toolLabel(name, a) {
   if (PHONE_TOOLS[name]) return PHONE_TOOLS[name](a);
   if (name === "web_search") return `Searched for “${a.query}”`;
@@ -1076,9 +1134,37 @@ function artTab(mode) {
   if (a.kind === "markdown") { body.innerHTML = `<div class="md">${md(a.content)}</div>`; return; }
   const frame = document.createElement("iframe");
   frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
-  frame.srcdoc = a.kind === "svg" ? `<body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh">${a.content}</body>` : a.content;
+  $("saveVideoBtn").hidden = !isVideo(a);
+  frame.srcdoc = isVideo(a) ? a.content + VIDEO_RECORDER : a.kind === "svg" ? `<body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh">${a.content}</body>` : a.content;
   body.innerHTML = ""; body.appendChild(frame);
 }
+// Video maker pages draw on <canvas id="video">. Saving records that canvas inside the
+// page (it's sandboxed, so this page can't reach in) and sends the file back here.
+const isVideo = a => a.kind === "html" && /<canvas[^>]*id=["']video["']/.test(a.content);
+const VIDEO_RECORDER = `<script>addEventListener("message", e => {
+  if (e.data !== "record") return;
+  const c = document.getElementById("video"), secs = Math.min(+c.dataset.seconds || 8, 60);
+  const type = ["video/mp4", "video/webm;codecs=vp9", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type || !c.captureStream) { parent.postMessage({videoError: "This device can't record video."}, "*"); return; }
+  const rec = new MediaRecorder(c.captureStream(30), {mimeType: type, videoBitsPerSecond: 6e6}), parts = [];
+  rec.ondataavailable = ev => parts.push(ev.data);
+  rec.onstop = () => { const r = new FileReader(); r.onload = () => parent.postMessage({video: r.result, type: rec.mimeType}, "*"); r.readAsDataURL(new Blob(parts, {type: rec.mimeType})); };
+  rec.start(); setTimeout(() => rec.stop(), secs * 1000);
+});<\/script>`;
+function saveVideo() {
+  const frame = document.querySelector("#artBody iframe");
+  if (!frame) return;
+  const secs = +((currentArt.content.match(/data-seconds=["']?(\d+)/) || [])[1] || 8);
+  toast(`Recording the video (${secs} seconds)...`);
+  frame.contentWindow.postMessage("record", "*");
+}
+addEventListener("message", async e => {
+  if (!e.data || !(e.data.video || e.data.videoError) || !currentArt) return;
+  if (e.data.videoError) return toast(e.data.videoError);
+  const ext = e.data.type.includes("mp4") ? "mp4" : "webm";
+  try { toast("Saved to " + await bridge("saveDownload", {name: `${currentArt.title}.${ext}`, content: e.data.video.split(",")[1], mime: e.data.type.split(";")[0], base64: true})); }
+  catch (err) { toast("Couldn't save: " + err.message); }
+});
 async function saveArt() {
   const a = currentArt, ext = {html: "html", svg: "svg", markdown: "md"}[a.kind] || "txt";
   const mime = {html: "text/html", svg: "image/svg+xml", markdown: "text/markdown"}[a.kind] || "text/plain";

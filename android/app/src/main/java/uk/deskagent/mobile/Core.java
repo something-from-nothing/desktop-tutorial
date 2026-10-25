@@ -256,6 +256,11 @@ final class Core {
 
     /** Saves a file the user asked for into the phone's Downloads folder. */
     String saveToDownloads(String name, String content, String mime) throws Exception {
+        return saveBytes(name, content.getBytes(StandardCharsets.UTF_8), mime);
+    }
+
+    /** Saves a picture or video (any bytes) into Downloads. */
+    String saveBytes(String name, byte[] bytes, String mime) throws Exception {
         String clean = name.replaceAll("[^\\w .()-]", "_");
         ContentValues v = new ContentValues();
         v.put(MediaStore.Downloads.DISPLAY_NAME, clean);
@@ -264,7 +269,7 @@ final class Core {
         Uri uri = app.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
         if (uri == null) throw new Exception("Couldn't save to Downloads.");
         try (OutputStream out = app.getContentResolver().openOutputStream(uri)) {
-            out.write(content.getBytes(StandardCharsets.UTF_8));
+            out.write(bytes);
         }
         return "Downloads/" + clean;
     }
