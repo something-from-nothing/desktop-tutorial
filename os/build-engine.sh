@@ -13,6 +13,6 @@ cmake -S ../llama.cpp -B engine-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 cmake --build engine-build -j "$(nproc)"
 rm -rf engine && mkdir engine
 cp engine-build/bin/llama-server engine/
-cp engine-build/bin/*.so engine/
+cp -a engine-build/bin/*.so* engine/  
 ls -la engine
 ldd engine/llama-server

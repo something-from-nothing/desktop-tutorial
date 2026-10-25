@@ -1,5 +1,6 @@
 #!/bin/bash
 # Desk OS's screen: Desk Agent full screen in a kiosk window, nothing else.
+exec >>"$HOME/.deskos-session.log" 2>&1  # kept for fixing problems
 for i in $(seq 1 120); do
   curl -sf http://127.0.0.1:8080/health >/dev/null && break
   sleep 1
