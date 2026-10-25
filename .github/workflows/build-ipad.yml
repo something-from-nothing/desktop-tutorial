@@ -7,13 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  contents: write
 
 jobs:
   build:
@@ -22,19 +16,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the site
         run: ipad/build.sh
-      - name: Turn on GitHub Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: ipad/site
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      # The site goes on the ipad-site branch. githack serves a public repo's files as
+      # web pages, so it opens at
+      # https://raw.githack.com/<owner>/<repo>/ipad-site/index.html with no Pages setup.
+      - name: Publish to the ipad-site branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd ipad/site
+          git init -b ipad-site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "iPad web app built from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ipad-site

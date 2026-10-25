@@ -22,7 +22,8 @@
   function load() {
     if (engine || loading) return loading;
     loading = (async () => {
-      const webllm = await import("./webllm.js");
+      // Its own copy first; the public CDN if that copy can't be loaded.
+      const webllm = await import("./webllm.js").catch(() => import("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/lib/index.js"));
       const progress = p => status(p.progress < 1 ? `Getting the AI ready: ${Math.round(p.progress * 100)}%. The first time downloads about 1 GB.` : "");
       let model = await pickModel();
       try {
