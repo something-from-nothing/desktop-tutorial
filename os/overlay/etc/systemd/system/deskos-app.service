@@ -1,0 +1,13 @@
+[Unit]
+Description=Desk OS app page
+After=local-fs.target
+
+# The Desk Agent page is served from 127.0.0.1 rather than opened as a file, so the
+# browser lets it talk to the AI engine on 127.0.0.1 (it blocks file pages from that).
+[Service]
+ExecStart=/bin/busybox httpd -f -p 127.0.0.1:8000 -h /opt/deskos/app
+DynamicUser=yes
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

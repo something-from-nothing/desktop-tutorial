@@ -16,7 +16,7 @@ apt-get install -y --no-install-recommends mmdebstrap grub-efi-amd64-bin grub-co
 
 # The system itself. firmware-* are for Chromebook Wi-Fi and graphics.
 mmdebstrap --mode=root --variant=minbase --components="main contrib non-free-firmware" \
-  --include=linux-image-amd64,initramfs-tools,systemd-sysv,libpam-systemd,udev,dbus,kmod,sudo,curl,ca-certificates,\
+  --include=linux-image-amd64,initramfs-tools,systemd-sysv,libpam-systemd,udev,dbus,kmod,sudo,curl,busybox,ca-certificates,\
 cage,chromium,fonts-roboto-unhinted,fonts-noto-color-emoji,network-manager,wpasupplicant,\
 firmware-iwlwifi,firmware-realtek,firmware-atheros,firmware-intel-graphics,firmware-amd-graphics,\
 libinput-bin,libgl1-mesa-dri \
@@ -39,7 +39,7 @@ chroot "$root" /bin/bash -euxc '
   printf "desk ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /usr/sbin/poweroff, /usr/sbin/reboot\n" > /etc/sudoers.d/desk
   cat /opt/deskos/profile >> /home/desk/.bash_profile
   chown desk:desk /home/desk/.bash_profile
-  systemctl enable deskos-engine.service NetworkManager.service
+  systemctl enable deskos-engine.service deskos-app.service NetworkManager.service
   systemctl set-default multi-user.target
   apt-get clean
   rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/*

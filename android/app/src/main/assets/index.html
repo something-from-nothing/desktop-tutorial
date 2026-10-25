@@ -389,7 +389,16 @@ const B = window.Android || (() => {
     call: async (id, method, args) => {
       const a = JSON.parse(args), reply = (value, error) => setTimeout(() => window.__bridgeReply(JSON.stringify({id, value, error})), 10);
       try {
-        if (method === "startEngine") return reply(enginePort);
+        if (method === "startEngine") {
+          // Desk OS starts the engine itself, and loading the model can take minutes on a
+          // slow computer: wait until it answers rather than failing the first message.
+          for (let i = 0; i < 450; i++) {
+            try { if ((await fetch(`http://127.0.0.1:${enginePort}/health`)).ok) { setStatus(""); return reply(enginePort); } } catch (e) {}
+            if (builtin) setStatus("Loading the AI. The first time can take a few minutes.");
+            await new Promise(r => setTimeout(r, 2000));
+          }
+          return reply(null, "The AI didn't start. Restart the computer and try again.");
+        }
         if (method === "httpGet") return reply(await (await fetch(a.url)).text());
         if (method === "saveDownload" && builtin) {
           const link = document.createElement("a");
@@ -1114,7 +1123,9 @@ function onBridgeEvent(ev) {
 function drawModels() {
   const files = JSON.parse(B.models() || "{}"), ramGb = B.memory() / 1e9, builtIn = JSON.parse(B.builtInModels ? B.builtInModels() : "[]");
   let lastMaker = "";
-  $("modelsList").innerHTML = Object.entries(CATALOG).map(([k, m]) => {
+  // Desk OS has its model built into the disk and can't add more, so it only lists that one.
+  const deskOS = !window.Android && builtIn.length;
+  $("modelsList").innerHTML = Object.entries(CATALOG).filter(([k]) => !deskOS || builtIn.includes(k)).map(([k, m]) => {
     const heading = m.maker !== lastMaker ? `<div class="maker">${esc(m.maker)}</div>` : ""; lastMaker = m.maker;
     const dl = downloads[k], ready = !!files[k];
     let action;
@@ -1129,7 +1140,9 @@ function drawModels() {
   }).join("");
 }
 function showModels() {
-  sheet(`<h2>Models</h2><p class="sub">Free models from different makers. Download once over Wi-Fi, then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.</p>
+  const intro = !window.Android && JSON.parse(B.builtInModels()).length ? "This model is built in and works offline."
+    : `Free models from different makers. Download once over Wi-Fi, then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.`;
+  sheet(`<h2>Models</h2><p class="sub">${intro}</p>
     <div class="list" id="modelsList"></div><div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
   drawModels();
 }
