@@ -39,4 +39,11 @@ if (!location.search.includes("builtin=")) history.replaceState(null, "", "index
 assert src.count("</title>") == 1
 open("site/index.html", "w").write(src.replace("</title>", "</title>\n" + head, 1))
 PY
+# Every build gets its own file addresses (?v=...), so Safari and githack can't keep
+# serving an older copy of the app after an update.
+V=$(git rev-parse --short HEAD 2>/dev/null || date +%s)
+sed -i "s#src=\"ipad.js\"#src=\"ipad.js?v=$V\"#; s#register(\"sw.js\")#register(\"sw.js?v=$V\")#" site/index.html
+sed -i "s#\"./webllm.js\"#\"./webllm.js?v=$V\"#; s#\"./wllama.js\"#\"./wllama.js?v=$V\"#; s#\"wllama.wasm\"#\"wllama.wasm?v=$V\"#" site/ipad.js
+sed -i "s#const CACHE = \"desk-agent-v[0-9]*\";#const CACHE = \"desk-agent-$V\";#" site/sw.js
+grep -q "ipad.js?v=$V" site/index.html && grep -q "webllm.js?v=$V" site/ipad.js && grep -q "wllama.wasm?v=$V" site/ipad.js && grep -q "desk-agent-$V" site/sw.js
 ls -la site
