@@ -5,7 +5,18 @@ for i in $(seq 1 120); do
   curl -sf http://127.0.0.1:8080/health >/dev/null && break
   sleep 1
 done
-exec cage -s -- chromium --ozone-platform=wayland --kiosk --no-first-run --noerrdialogs \
-  --disable-infobars --disable-session-crashed-bubble --password-store=basic \
-  --allow-file-access-from-files --disable-web-security --user-data-dir="$HOME/.deskos-browser" \
-  "file:///opt/deskos/app/index.html?engine=8080&builtin=qwen3small"
+browser=(chromium --ozone-platform=wayland --kiosk --no-first-run --noerrdialogs
+  --disable-infobars --disable-session-crashed-bubble --password-store=basic
+  --allow-file-access-from-files --disable-web-security --user-data-dir="$HOME/.deskos-browser"
+  "file:///opt/deskos/app/index.html?engine=8080&builtin=qwen3small")
+# Normally the graphics chip draws the screen. If that fails (it closes within
+# 20 seconds), draw it in software from then on: slower, but it always works.
+soft="$HOME/.deskos-software-screen"
+if [ ! -e "$soft" ]; then
+  started=$(date +%s)
+  cage -s -- "${browser[@]}"
+  [ $(( $(date +%s) - started )) -lt 20 ] && touch "$soft" || exit 0
+fi
+echo "drawing the screen in software"
+export WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
+exec cage -s -- "${browser[@]}" --disable-gpu
