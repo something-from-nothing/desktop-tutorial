@@ -25,7 +25,6 @@
     <property name="plugin-1" type="string" value="whiskermenu">
       <property name="button-title" type="string" value="Apps"/>
       <property name="show-button-title" type="bool" value="false"/>
-      <property name="button-icon" type="string" value="/opt/deskos/desk-agent.png"/>
     </property>
     <property name="plugin-2" type="string" value="launcher">
       <property name="items" type="array">

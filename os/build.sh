@@ -25,7 +25,7 @@ thunar,thunar-volman,gvfs,udisks2,mousepad,ristretto,galculator,xarchiver,thunar
 chromium,gnome-software,gnome-software-plugin-flatpak,flatpak,gnome-disk-utility,zenity,polkitd,pkexec,\
 network-manager,network-manager-gnome,wpasupplicant,pipewire-pulse,wireplumber,pavucontrol,alsa-ucm-conf,\
 arc-theme,papirus-icon-theme,fonts-noto-core,fonts-noto-color-emoji,fonts-roboto-unhinted,\
-cloud-guest-utils,gdisk,parted,e2fsprogs,\
+cloud-guest-utils,gdisk,parted,e2fsprogs,tzdata,\
 firmware-iwlwifi,firmware-realtek,firmware-atheros,firmware-intel-graphics,firmware-sof-signed,\
 libinput-bin,libgl1-mesa-dri \
   trixie "$work/root" http://deb.debian.org/debian
@@ -36,10 +36,11 @@ mkdir -p "$root/opt/deskos/app" "$root/opt/deskos/models" "$root/opt/deskos/engi
 cp ../android/app/src/main/assets/index.html "$root/opt/deskos/app/index.html"
 cp -a engine/. "$root/opt/deskos/engine/"
 cp model.gguf "$root/opt/deskos/models/model.gguf"
-chmod +x "$root/opt/deskos/engine/llama-server" "$root"/opt/deskos/{desk-agent,first-login,grow-root,install-helper,install-to-drive}
+chmod +x "$root/opt/deskos/engine/llama-server" "$root"/opt/deskos/{desk-agent,grow-root,install-helper,install-to-drive}
 
 chroot "$root" /bin/bash -euxc '
   echo deskos > /etc/hostname
+  ln -sf /usr/share/zoneinfo/Europe/London /etc/localtime && echo Europe/London > /etc/timezone
   printf "127.0.0.1 localhost\n127.0.1.1 deskos\n" > /etc/hosts
   printf "LABEL=DESKOS / ext4 defaults,noatime 0 1\n" > /etc/fstab
   useradd -m -s /bin/bash -c "Desk OS" -G video,input,render,netdev,audio,plugdev desk

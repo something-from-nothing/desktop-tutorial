@@ -1,5 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Desk OS first start
-Exec=/opt/deskos/first-login
-NoDisplay=true
