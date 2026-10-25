@@ -11,8 +11,16 @@
 //     handles tool calls itself.
 (() => {
   const PORT = "1";
-  const GPU_MODELS = {f16: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", f32: "Qwen2.5-1.5B-Instruct-q4f32_1-MLC"};
-  const CPU_MODEL = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf";
+  // The models the iPad offers (keys from the app's CATALOG). On the graphics chip they
+  // run as WebLLM builds where one exists; on the processor, the CATALOG's GGUF file.
+  const GPU_IDS = {tiny: "Qwen2.5-0.5B-Instruct", quick: "Qwen2.5-1.5B-Instruct", qwen3small: "Qwen3-1.7B",
+                   llamasmall: "Llama-3.2-1B-Instruct"};
+  const MODELS = ["tiny", "quick", "qwen3small", "llamasmall", "gemmasmall"];
+  let wanted = "quick", current = null;
+  // Once the graphics chip has failed, later models go straight to the processor
+  // (until the app is reopened, so a one off download problem doesn't stick).
+  let gpuBroken = false;
+  const markGpuBroken = () => { gpuBroken = true; };
   const CONTEXT_CHARS = 9000;  // the model holds 4096 tokens; leave room for the answer
   // Tools that work in a browser. Web search can't (sites block other pages reading them).
   const IPAD_TOOLS = ["ask_user", "set_reminder", "create_artifact"];
@@ -22,19 +30,30 @@
   const percent = (done, total) => total ? Math.round(100 * done / total) : 0;
 
   async function loadGpu() {
+    if (gpuBroken || !GPU_IDS[wanted]) throw new Error("not on the graphics chip");
     if (!navigator.gpu) throw new Error("no WebGPU");
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("no WebGPU adapter");
     const webllm = await import("./webllm.js");
-    const model = adapter.features.has("shader-f16") ? GPU_MODELS.f16 : GPU_MODELS.f32;
+    const model = GPU_IDS[wanted] + (adapter.features.has("shader-f16") ? "-q4f16_1-MLC" : "-q4f32_1-MLC");
     engine = await webllm.CreateMLCEngine(model, {initProgressCallback: p =>
       status(p.progress < 1 ? `Getting the AI ready: ${Math.round(p.progress * 100)}%. The first time downloads about 1 GB.` : "")});
     mode = "gpu";
   }
+  // The GGUF file for a model: the CATALOG names a Hugging Face repo and a quantisation.
+  async function ggufUrl(key) {
+    const m = CATALOG[key];
+    const info = await (await fetch(`https://huggingface.co/api/models/${m.repo}`)).json();
+    const files = (info.siblings || []).map(s => s.rfilename)
+      .filter(f => f.toLowerCase().endsWith(".gguf") && f.toLowerCase().includes(m.quant.toLowerCase()) && !f.includes("-of-"))
+      .sort((a, b) => a.length - b.length);
+    if (!files.length) throw new Error(`No ${m.quant} file found for ${m.label}.`);
+    return `https://huggingface.co/${m.repo}/resolve/main/${encodeURIComponent(files[0])}`;
+  }
   async function loadCpu() {
     const {Wllama} = await import("./wllama.js");
     const w = new Wllama({default: new URL("wllama.wasm", location.href).href});
-    await w.loadModelFromUrl(CPU_MODEL, {
+    await w.loadModelFromUrl(await ggufUrl(wanted), {
       n_ctx: 4096, n_gpu_layers: 0,
       progressCallback: ({loaded, total}) => status(loaded < total
         ? `Getting the AI ready: ${percent(loaded, total)}%. The first time downloads about 1 GB.` : "Starting the AI..."),
@@ -45,14 +64,17 @@
   function load() {
     if (engine) return Promise.resolve();
     if (loading) return loading;
+    const key = wanted;
     loading = (async () => {
       try { await loadGpu(); }
       catch (e) {
         console.warn("Graphics chip AI unavailable, using the processor:", e);
+        if (GPU_IDS[wanted] && !gpuBroken) markGpuBroken();
         engine = null;
-        status("This iPad's graphics chip can't run the AI, so it's running on the processor. Answers will be slower.");
+        status("Running the AI on the iPad's processor. Answers will be slower.");
         await loadCpu();
       }
+      current = key;
       status("");
     })().catch(e => {
       failed = e;
@@ -162,6 +184,7 @@
             try { await gpuChat(body, tools, send); }
             catch (e) {
               if (gpuWorked) throw e;
+              markGpuBroken();
               // The graphics chip loaded the model but can't run it: switch for good.
               console.warn("Graphics chip AI failed on first use, switching to the processor:", e);
               engine = null; mode = null;
@@ -180,17 +203,36 @@
     }), {status: 200, headers: {"Content-Type": "text/event-stream"}});
   }
 
+  // The app tells us which model it wants before it checks the engine is ready.
+  window.__deskIPad = {
+    models: MODELS,
+    use(key) {
+      if (!MODELS.includes(key) || key === wanted) return;
+      wanted = key;
+      failed = null;  // a model that failed to load shouldn't block trying another
+    },
+  };
+  // A different model was picked: let go of the loaded one so the next load uses it.
+  function switchIfNeeded() {
+    if (!engine || current === wanted) return;
+    const old = engine;
+    engine = null; mode = null; failed = null; current = null; gpuWorked = false;
+    try { old.unload ? old.unload() : old.exit && old.exit(); } catch (e) {}
+  }
+
   const realFetch = window.fetch.bind(window);
   window.fetch = async (input, init = {}) => {
     const url = typeof input === "string" ? input : input.url;
     if (!url.startsWith(`http://127.0.0.1:${PORT}/`)) return realFetch(input, init);
     const path = url.slice(`http://127.0.0.1:${PORT}`.length);
     if (path === "/health") {
-      if (!failed) load().catch(() => {});
+      switchIfNeeded();
+      if (!failed && !loading) load().catch(() => {});
       return new Response(engine ? '{"status":"ok"}' : '{"status":"loading"}', {status: engine ? 200 : 503});
     }
     if (path === "/v1/chat/completions") {
-      if (!engine) await load();
+      switchIfNeeded();
+      while (!engine || current !== wanted) { switchIfNeeded(); await load(); }
       return chatResponse(JSON.parse(init.body || "{}"));
     }
     return new Response("Not found", {status: 404});

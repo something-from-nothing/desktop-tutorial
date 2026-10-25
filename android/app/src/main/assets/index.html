@@ -375,7 +375,12 @@ const B = window.Android || (() => {
   const ls = k => localStorage.getItem("da:" + k);
   // Desk OS starts the page with ?builtin=KEY: that model is on the disk and it's the only one.
   const builtin = params.get("builtin");
-  if (builtin) { localStorage.setItem("da:_models", JSON.stringify({[builtin]: 1e9})); localStorage.setItem("da:_builtin", JSON.stringify([builtin])); }
+  // The iPad version (ipad.js) can run several models, each downloaded on first use.
+  const onDevice = window.__deskIPad ? window.__deskIPad.models : builtin ? [builtin] : null;
+  if (onDevice) {
+    localStorage.setItem("da:_models", JSON.stringify(Object.fromEntries(onDevice.map(k => [k, 1e9]))));
+    localStorage.setItem("da:_builtin", JSON.stringify(onDevice));
+  }
   return {
     read: p => ls(p), write: (p, t) => (localStorage.setItem("da:" + p, t), true),
     list: dir => JSON.stringify(Object.keys(localStorage).filter(k => k.startsWith("da:" + dir + "/")).map(k => k.slice(dir.length + 4))),
@@ -390,6 +395,7 @@ const B = window.Android || (() => {
       const a = JSON.parse(args), reply = (value, error) => setTimeout(() => window.__bridgeReply(JSON.stringify({id, value, error})), 10);
       try {
         if (method === "startEngine") {
+          if (window.__deskIPad) window.__deskIPad.use(a.model);
           // Desk OS starts the engine itself, and loading the model can take minutes on a
           // slow computer: wait until it answers rather than failing the first message.
           for (let i = 0; i < 450; i++) {
@@ -639,7 +645,9 @@ function modelMessages(messages, system) {
 function chooseModel(agent, text, first) {
   const ready = installed();
   if (!ready.length) throw new Error("No AI model is downloaded yet. Open Models to get one.");
-  const wanted = settings.model !== "auto" ? settings.model : agent.model || "auto";
+  let wanted = settings.model !== "auto" ? settings.model : agent.model || "auto";
+  // On iPad each switch reloads a model, so Auto sticks to one.
+  if (window.__deskIPad && wanted === "auto") wanted = ready.includes("quick") ? "quick" : ready[0];
   if (wanted !== "auto") return ready.includes(wanted) ? [wanted, null] : [ready.includes("general") ? "general" : ready[0], `${wanted} isn't downloaded`];
   if (CODE_WORDS.test(text) && ready.includes("coder")) return ["coder", "it looks like a coding job"];
   if (first && text.split(/\s+/).length < 12 && !ACTION_WORDS.test(text) && ready.includes("quick")) return ["quick", "it's a short question"];
@@ -1129,7 +1137,8 @@ function drawModels() {
     const heading = m.maker !== lastMaker ? `<div class="maker">${esc(m.maker)}</div>` : ""; lastMaker = m.maker;
     const dl = downloads[k], ready = !!files[k];
     let action;
-    if (builtIn.includes(k)) action = `<span class="ready">Built in</span>`;
+    if (window.__deskIPad) action = engineModel === k ? `<span class="ready">In use</span>` : `<button class="tonal" onclick="useModel('${k}')">Use</button>`;
+    else if (builtIn.includes(k)) action = `<span class="ready">Built in</span>`;
     else if (ready) action = `<span class="ready">Ready</span><button class="icon-btn" onclick="delModel('${k}')" aria-label="Delete">${icon("trash", "width:19px;height:19px")}</button>`;
     else if (dl && !dl.status) action = `<span class="meta">${dl.total ? Math.round(100 * dl.done / dl.total) + "%" : "Starting"}</span><button class="tonal" onclick="B.cancelDownload('${k}')">Pause</button>`;
     else action = `<button class="filled" onclick="getModel('${k}')">${dl && dl.status === "error" ? "Retry" : dl && dl.done ? "Resume" : "Get"}</button>`;
@@ -1139,8 +1148,14 @@ function drawModels() {
     return `${heading}<div class="item card"><span class="grow">${m.label} <span class="meta">${m.detail} \u00b7 ${m.size_gb} GB</span><small>${m.about}</small>${warn}${err}${bar}</span><span class="actions">${action}</span></div>`;
   }).join("");
 }
+function useModel(k) {
+  saveSettings({model: k}); closeSheet();
+  toast(`Switching to ${CATALOG[k].label}. It loads with your next message.`);
+  renderOpts();
+}
 function showModels() {
-  const intro = !window.Android && JSON.parse(B.builtInModels()).length ? "This model is built in and works offline."
+  const intro = window.__deskIPad ? "Each model downloads the first time you use it (over Wi-Fi), then works offline. Bigger ones are cleverer but slower."
+    : !window.Android && JSON.parse(B.builtInModels()).length ? "This model is built in and works offline."
     : `Free models from different makers. Download once over Wi-Fi, then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.`;
   sheet(`<h2>Models</h2><p class="sub">${intro}</p>
     <div class="list" id="modelsList"></div><div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
