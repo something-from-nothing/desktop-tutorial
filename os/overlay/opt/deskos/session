@@ -6,5 +6,5 @@ for i in $(seq 1 120); do
 done
 exec cage -s -- chromium --ozone-platform=wayland --kiosk --no-first-run --noerrdialogs \
   --disable-infobars --disable-session-crashed-bubble --password-store=basic \
-  --allow-file-access-from-files --user-data-dir="$HOME/.deskos-browser" \
-  "file:///opt/deskos/app/index.html?engine=8080&builtin=quick"
+  --allow-file-access-from-files --disable-web-security --user-data-dir="$HOME/.deskos-browser" \
+  "file:///opt/deskos/app/index.html?engine=8080&builtin=qwen3small"

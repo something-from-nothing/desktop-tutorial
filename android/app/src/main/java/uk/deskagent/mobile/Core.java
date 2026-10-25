@@ -99,7 +99,8 @@ final class Core {
         try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
         int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 2));
         ProcessBuilder pb = new ProcessBuilder(exe.getPath(), "-m", modelFile.getPath(), "--host", "127.0.0.1",
-                "--port", String.valueOf(port), "-c", String.valueOf(context), "--jinja", "-t", String.valueOf(threads));
+                "--port", String.valueOf(port), "-c", String.valueOf(context), "--jinja", "--reasoning-format", "none",
+                "-t", String.valueOf(threads));
         pb.redirectErrorStream(true);
         File log = new File(app.getFilesDir(), "engine.log");
         pb.redirectOutput(log);

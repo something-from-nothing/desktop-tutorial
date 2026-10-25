@@ -38,7 +38,7 @@ import urllib.request
 import uuid
 import zipfile
 from contextlib import AsyncExitStack
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -368,7 +368,7 @@ class Engine:
             status(f"Loading {CATALOG.get(key, {}).get('label', key)} model...")
             self.port = free_port()
             args = [str(server), "-m", str(path), "--host", "127.0.0.1", "--port", str(self.port),
-                    "-c", str(self.cfg["context"]), "--jinja"]
+                    "-c", str(self.cfg["context"]), "--jinja", "--reasoning-format", "none"]
             if self.cfg["threads"]:
                 args += ["-t", str(self.cfg["threads"])]
             log.info("starting %s", " ".join(args))
@@ -478,12 +478,18 @@ TOOL_GROUPS = {
                "language": {"type": "string", "description": "For code: python, javascript and so on."},
                "content": {"type": "string"}}, ["title", "kind", "content"]),
     ],
+    "ask": [
+        _tool("ask_user", "Ask the user a question as a poll they answer by clicking. Use it when the request could mean different things or a real choice is theirs to make, instead of guessing. One question per poll, 2 to 4 short options; they can also type their own answer.",
+              {"question": {"type": "string"}, "options": {"type": "array", "items": {"type": "string"}},
+               "multiple": {"type": "boolean", "description": "true if they may pick more than one"}}, ["question", "options"]),
+    ],
     "delegate": [
         _tool("ask_agent", "Hand a self contained task to a specialist agent and get its answer back. Describe the task fully; the agent can't see this chat.",
               {"agent": {"type": "string", "description": "Agent id"}, "task": {"type": "string"}}, ["agent", "task"]),
     ],
 }
 GROUP_PROMPTS = {
+    "ask": "When it's unclear what the user wants, or a choice is theirs to make, ask with ask_user (a click poll) instead of guessing. Ask one poll, then wait for the answer.",
     "code": "You can write and run code in the projects folder ({workspace}). For a new program, make a subfolder, write the files, run them to check they work, fix what breaks, then say where it is and how to start it.",
     "desktop": "You can open apps, files and web addresses, switch windows, type and press keys. You can't see the screen, so use list_windows to check what is open and focus_window before typing.",
     "web": "You can search the web and read pages. Say where information came from.",
@@ -491,7 +497,20 @@ GROUP_PROMPTS = {
     "delegate": "Agents you can hand work to with ask_agent: {agents}.",
 }
 TOOL_GROUP_OF = {t["function"]["name"]: g for g, tools in TOOL_GROUPS.items() for t in tools}
-HARMLESS = {"list_files", "read_file", "list_windows", "web_search", "read_webpage", "create_artifact", "ask_agent"}
+HARMLESS = {"list_files", "read_file", "list_windows", "web_search", "read_webpage", "create_artifact", "ask_agent", "ask_user"}
+
+
+def uk_now() -> str:
+    """The date and time in the UK: GMT, or BST from the last Sunday in March to the
+    last Sunday in October (both at 01:00 GMT). Worked out by hand so Windows needs
+    no time zone database."""
+    utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    def last_sunday(month):
+        d = datetime(utc.year, month, 31, 1)
+        return d.replace(day=31 - (d.weekday() + 1) % 7)
+    summer = last_sunday(3) <= utc < last_sunday(10)
+    local = utc + (timedelta(hours=1) if summer else timedelta())
+    return local.strftime("%A %d %B %Y, %H:%M ") + ("BST" if summer else "GMT")
 
 
 def workspace_path(cfg: dict, rel: str) -> Path:
@@ -744,7 +763,7 @@ class Store:
 # ---------------------------------------------------------------- the agent
 
 BASE_PROMPT = """You are {agent_name}, part of Desk Agent, an assistant running entirely on the user's own Windows laptop. Nothing they say leaves the laptop.
-Today is {today}.
+It is now {today}. Use this for anything about dates, days or times.
 
 {instructions}
 
@@ -813,9 +832,14 @@ class Brain:
 
     # building the prompt
 
+    def groups_for(self, agent: dict, allow_delegate: bool) -> list:
+        """Only the main chat can ask the user things, so helper agents don't get polls."""
+        groups = [g for g in agent.get("tools", []) if g != "ask"]
+        return groups + ["ask"] if allow_delegate else groups
+
     def tools_for(self, agent: dict, allow_delegate=True) -> list:
         tools = []
-        for group in agent.get("tools", []):
+        for group in self.groups_for(agent, allow_delegate):
             if group == "delegate" and not allow_delegate:
                 continue
             tools += TOOL_GROUPS.get(group, [])
@@ -826,8 +850,8 @@ class Brain:
     def system_prompt(self, agent_id: str, agent: dict, chat: dict | None, style="normal", think=False, allow_delegate=True) -> str:
         others = ", ".join(f"{k} ({a['name']})" for k, a in all_agents(self.cfg).items() if k != agent_id)
         parts = [GROUP_PROMPTS[g].format(workspace=self.cfg["workspace"], agents=others)
-                 for g in agent.get("tools", []) if g in GROUP_PROMPTS and (g != "delegate" or allow_delegate)]
-        prompt = BASE_PROMPT.format(agent_name=agent["name"], today=date.today().strftime("%A %d %B %Y"),
+                 for g in self.groups_for(agent, allow_delegate) if g in GROUP_PROMPTS and (g != "delegate" or allow_delegate)]
+        prompt = BASE_PROMPT.format(agent_name=agent["name"], today=uk_now(),
                                     instructions=agent.get("instructions", ""), tools="\n".join(parts) + "\n" if parts else "")
         if STYLES.get(style):
             prompt += "\n\nStyle: " + STYLES[style]
@@ -968,6 +992,8 @@ class Brain:
                 messages.append({"role": "tool", "tool_call_id": call["id"], "content": result, **extra})
                 if sub is None:
                     self.store.save_chat(chat)
+            if any(c["function"]["name"] == "ask_user" for c in calls):
+                return ""  # wait for their click
         return "Stopped: too many steps."
 
     def _run_tool(self, chat, call, sub):
@@ -1002,6 +1028,8 @@ class Brain:
                 result, extra = self._artifact(chat, args)
             elif name == "ask_agent":
                 result, extra = self._ask_agent(chat, call["id"], args)
+            elif name == "ask_user":
+                result = "The poll is on screen. Wait for the user's answer in their next message."
             elif self.mcp.owns(name):
                 result = self.mcp.call(name, args)
             else:
@@ -1462,7 +1490,7 @@ class Server:
             "config": {k: cfg[k] for k in ("model", "context", "threads", "learn", "confirm_actions", "max_steps", "workspace", "mcpServers")},
             "models": models,
             "agents": {k: {**a, "builtin": k in BUILTIN_AGENTS} for k, a in all_agents(cfg).items()},
-            "tool_groups": list(TOOL_GROUPS) + ["mcp"],
+            "tool_groups": [g for g in TOOL_GROUPS if g != "ask"] + ["mcp"],
             "styles": list(STYLES),
             "projects": self.brain.store.list_projects(),
             "chats": self.brain.store.list_chats(),
@@ -1651,6 +1679,15 @@ body.panel-open #top .lbl { display: none; } body.panel-open #top .short { displ
 .codeblock .bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 4px 10px; background: #ffffff10; }
 .codeblock .bar button { background: transparent; color: var(--code-text); border: 1px solid #ffffff30; padding: 1px 8px; font-size: 12px; }
 .codeblock pre { margin: 0; padding: 12px; overflow-x: auto; } .codeblock code { background: none; padding: 0; color: inherit; }
+.poll { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 8px 0; background: var(--panel); }
+.poll-q { font-weight: 600; margin-bottom: 8px; }
+.poll-opts { display: flex; flex-direction: column; gap: 6px; }
+.poll-opt { text-align: left; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; font: inherit; }
+.poll-opt:hover:not(:disabled) { border-color: var(--accent); }
+.poll-opt.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.poll-opt:disabled { opacity: .55; cursor: default; }
+.poll-send { margin-top: 8px; }
+.poll small { display: block; color: var(--dim); font-size: 12px; margin-top: 6px; }
 .tool { font-size: 13px; border: 1px solid var(--line); border-radius: 10px; margin: 6px 0; background: var(--panel); }
 .tool summary { cursor: pointer; padding: 6px 10px; color: var(--dim); list-style: none; }
 .tool summary::before { content: "\25B8  "; } .tool[open] summary::before { content: "\25BE  "; }
@@ -1740,7 +1777,7 @@ ol.steps li { margin: 6px 0; }
     <label><span class="lbl">Agent</span> <select id="agentSel" onchange="setChatField('agent', this.value)"></select></label>
     <label><span class="lbl">Model</span> <select id="modelSel" onchange="setConfig({model: this.value})"></select></label>
     <label><span class="lbl">Style</span> <select id="styleSel"></select></label>
-    <label title="Ask the model to reason step by step before answering"><input type="checkbox" id="think"> <span class="lbl">Think first</span><span class="short">Think</span></label>
+    <label title="Ask the model to reason step by step before answering"><input type="checkbox" id="think" checked> <span class="lbl">Think first</span><span class="short">Think</span></label>
     <button class="ghost" title="Download this chat" onclick="exportChat()">&#8681;</button>
   </div>
   <div id="status"></div>
@@ -1920,11 +1957,38 @@ function toolHtml(call, result) {
     const art = (chat.artifacts || []).find(a => result && a.id === result.artifact) || (chat.artifacts || []).find(a => a.title === args.title);
     return art ? artifactCard(art) : "";
   }
+  if (name === "ask_user") return pollHtml(call.id, args, !result || isLatestPoll(call.id));
   if (name === "ask_agent") {
     const log = (result?.agent_log || []).map(e => (e.content ? `<div class="md">${md(e.content)}</div>` : "") + (e.tools?.length ? `<div class="chip">used ${esc(e.tools.join(", "))}</div>` : "")).join("");
     return `<div class="agentbox"><div class="agentname">&#129302; ${esc(result?.agent || args.agent)} agent</div><details class="tool"><summary>Task: ${esc((args.task || "").slice(0, 120))}</summary><div style="padding: 4px 10px">${log || "<pre>" + esc(result?.content || "") + "</pre>"}</div></details></div>`;
   }
   return `<details class="tool"><summary>${esc(toolLabel(name, args))}</summary><pre>${esc(result ? result.content : "running...")}</pre></details>`;
+}
+// A poll from ask_user: click an option to answer it (multiple: pick, then Send).
+const polls = {};
+function isLatestPoll(id) {
+  const i = chat.messages.findIndex(m => (m.tool_calls || []).some(t => t.id === id));
+  return i >= 0 && !chat.messages.slice(i + 1).some(m => m.role === "user") && !S.busy;
+}
+function pollHtml(id, a, open) {
+  const options = (Array.isArray(a.options) ? a.options : []).map(String).slice(0, 6);
+  polls[id] = {options, multiple: !!a.multiple, picked: new Set()};
+  const buttons = options.map((o, i) => `<button class="poll-opt" ${open ? "" : "disabled"} onclick="pollTap('${id}', ${i}, this)">${esc(o)}</button>`).join("");
+  return `<div class="poll"><div class="poll-q">${esc(a.question || "")}</div><div class="poll-opts">${buttons}</div>
+    ${open && a.multiple ? `<button class="poll-send" onclick="pollSend('${id}')">Send</button>` : ""}
+    ${open ? `<small>Or type your own answer below.</small>` : ""}</div>`;
+}
+function pollTap(id, i, el) {
+  const p = polls[id];
+  if (!p.multiple) { $("input").value = p.options[i]; send(); return; }
+  p.picked.has(i) ? p.picked.delete(i) : p.picked.add(i);
+  el.classList.toggle("on", p.picked.has(i));
+}
+function pollSend(id) {
+  const p = polls[id];
+  if (!p.picked.size) return toast("Pick at least one");
+  $("input").value = [...p.picked].sort().map(i => p.options[i]).join(", ");
+  send();
 }
 function toolLabel(name, a) {
   const labels = {web_search: `Searched the web: ${a.query}`, read_webpage: `Read ${a.url}`, write_file: `Wrote ${a.path}`, read_file: `Read ${a.path}`,

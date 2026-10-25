@@ -1,10 +1,10 @@
 #!/bin/bash
 # Builds Desk OS: a small Debian system that starts straight into Desk Agent, with
-# the AI engine and the Quick model on the disk. The result is DeskOS.bin, a whole
+# the AI engine and the Qwen 3 1.7B model on the disk. The result is DeskOS.bin, a whole
 # disk image for a USB stick (the Chromebook Recovery Utility can write it).
 #
 # Runs as root inside a privileged debian:trixie container (see build-os.yml), and
-# needs the engine already built into ./engine and the model at ./quick.gguf.
+# needs the engine already built into ./engine and the model at ./model.gguf.
 set -euo pipefail
 cd "$(dirname "$0")"
 work=$PWD/work
@@ -27,7 +27,7 @@ cp -a overlay/. "$root/"
 mkdir -p "$root/opt/deskos/app" "$root/opt/deskos/models" "$root/opt/deskos/engine"
 cp ../android/app/src/main/assets/index.html "$root/opt/deskos/app/index.html"
 cp -a engine/. "$root/opt/deskos/engine/"
-cp quick.gguf "$root/opt/deskos/models/quick.gguf"
+cp model.gguf "$root/opt/deskos/models/model.gguf"
 chmod +x "$root/opt/deskos/session" "$root/opt/deskos/engine/llama-server"
 
 chroot "$root" /bin/bash -euxc '

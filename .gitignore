@@ -16,6 +16,6 @@ llama_tmp/
 os/work/
 os/engine/
 os/engine-build/
-os/quick.gguf
+os/model.gguf
 os/DeskOS.bin
 os/DeskOS.zip

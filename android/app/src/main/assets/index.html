@@ -110,6 +110,14 @@ a { color: var(--accent); text-decoration: none; }
 .codeblock pre { margin: 0; padding: 4px 14px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5; } .codeblock code { background: none; padding: 0; }
 
 /* quiet one line steps: tool use, reasoning, helper agents */
+.poll { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin: 10px 0; }
+.poll-q { font-weight: 500; margin-bottom: 10px; }
+.poll-opts { display: flex; flex-direction: column; gap: 8px; }
+.poll-opt { text-align: left; background: var(--raised); border-radius: 14px; padding: 10px 14px; min-height: 44px; }
+.poll-opt.on { background: var(--accent); color: var(--accent-text); }
+.poll-opt:disabled { opacity: .55; cursor: default; }
+.poll-send { margin-top: 10px; }
+.poll small { display: block; color: var(--faint); font-size: 12px; margin-top: 8px; }
 details.step { margin: 6px 0; font-size: 14px; color: var(--dim); }
 details.step > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0; min-height: 32px; }
 details.step > summary::-webkit-details-marker { display: none; }
@@ -350,7 +358,7 @@ const WEBSITES = {
   gemini: {name: "Gemini", host: "gemini.google.com"},
   perplexity: {name: "Perplexity", host: "perplexity.ai"},
 };
-const DEFAULT_SETTINGS = {model: "auto", style: "normal", think: false, context: 8192, learn: true, max_steps: 12};
+const DEFAULT_SETTINGS = {model: "auto", style: "normal", think: true, context: 8192, learn: true, max_steps: 12};
 const CODE_WORDS = /\b(code|coding|program|script|python|javascript|html|css|function|bug|debug|compile|app|website|game|sql|class|error|traceback|refactor|api)\b/i;
 const ACTION_WORDS = /\b(open|make|create|write|build|run|find|search|save|install|type|fix|file|folder)\b/i;
 
@@ -510,12 +518,17 @@ const TOOL_GROUPS = {
     tool("press", "Press one of the phone's own buttons.", {button: {type: "string", enum: ["back", "home", "recents", "notifications"]}}, ["button"]),
     tool("list_apps", "List the names of the apps installed on the phone.", {}, []),
   ],
+  ask: [
+    tool("ask_user", "Ask the user a question as a poll they answer by tapping. Use it when the request could mean different things or a real choice is theirs to make, instead of guessing. One question per poll, 2 to 4 short options; they can also type their own answer.",
+      {question: {type: "string"}, options: {type: "array", items: {type: "string"}}, multiple: {type: "boolean", description: "true if they may pick more than one"}}, ["question", "options"]),
+  ],
   delegate: [
     tool("ask_agent", "Hand a self contained task to a specialist agent and get its answer back. Describe the task fully; the agent can't see this chat.",
       {agent: {type: "string", description: "Agent id"}, task: {type: "string"}}, ["agent", "task"]),
   ],
 };
 const GROUP_PROMPTS = {
+  ask: "When it's unclear what the user wants, or a choice is theirs to make, ask with ask_user (a tap poll) instead of guessing. Ask one poll, then wait for the answer.",
   web: "You can search the web and read pages. Say where information came from.",
   artifacts: "Use create_artifact to show finished web pages, drawings, documents or code to the user.",
   delegate: "Agents you can hand work to with ask_agent: {agents}.",
@@ -541,7 +554,7 @@ async function webSearch(query) {
 // ================================================================ the agent
 
 const BASE_PROMPT = `You are {agent_name}, part of Desk Agent, an assistant running entirely on the user's own phone. Nothing they say leaves the phone, apart from web searches.
-Today is {today}.
+It is now {today}. Use this for anything about dates, days or times.
 
 {instructions}
 
@@ -566,13 +579,24 @@ Reply with only the new memory as short bullet points, under 300 words. If nothi
 
 let job = null;  // {chatId, controller}
 
+// Helper agents (allowDelegate false) can't ask the user anything: only the main chat can.
+function agentGroups(agent, allowDelegate) {
+  return [...(agent.tools || []), ...(allowDelegate && !B.isBackground() ? ["ask"] : [])].filter(g => g !== "delegate" || allowDelegate);
+}
 function toolsFor(agent, allowDelegate = true) {
-  return (agent.tools || []).filter(g => g !== "delegate" || allowDelegate).flatMap(g => TOOL_GROUPS[g] || []);
+  return agentGroups(agent, allowDelegate).flatMap(g => TOOL_GROUPS[g] || []);
+}
+// The date and time in the UK, GMT in winter and BST in summer, worked out fresh for every message.
+function ukNow() {
+  const d = new Date();
+  const date = d.toLocaleDateString("en-GB", {timeZone: "Europe/London", weekday: "long", day: "numeric", month: "long", year: "numeric"});
+  const time = d.toLocaleTimeString("en-GB", {timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", timeZoneName: "short"});
+  return `${date}, ${time}`;
 }
 function systemPrompt(agentId, agent, c, {style = "normal", think = false, allowDelegate = true} = {}) {
   const others = Object.entries(allAgents()).filter(([k]) => k !== agentId).map(([k, a]) => `${k} (${a.name})`).join(", ");
-  const parts = (agent.tools || []).filter(g => GROUP_PROMPTS[g] && (g !== "delegate" || allowDelegate)).map(g => GROUP_PROMPTS[g].replace("{agents}", others));
-  let p = BASE_PROMPT.replace("{agent_name}", agent.name).replace("{today}", new Date().toLocaleDateString("en-GB", {weekday: "long", day: "numeric", month: "long", year: "numeric"}))
+  const parts = agentGroups(agent, allowDelegate).filter(g => GROUP_PROMPTS[g]).map(g => GROUP_PROMPTS[g].replace("{agents}", others));
+  let p = BASE_PROMPT.replace("{agent_name}", agent.name).replace("{today}", ukNow())
     .replace("{instructions}", agent.instructions || "").replace("{tools}", parts.length ? parts.join("\n") + "\n" : "");
   if (STYLES[style]) p += "\n\nStyle: " + STYLES[style];
   if (think) p += "\n\n" + THINK_PROMPT;
@@ -675,6 +699,7 @@ async function agentLoop(c, messages, system, tools, sub) {
       messages.push({role: "tool", tool_call_id: call.id, content: result, ...extra});
       if (!sub) Store.saveChat(c);
     }
+    if (calls.some(call => call.function.name === "ask_user")) return "";  // wait for their tap
   }
   return "Stopped: too many steps.";
 }
@@ -695,6 +720,7 @@ async function runTool(c, call, sub) {
     else if (name === "read_webpage") result = pageText(await bridge("httpGet", {url: args.url}));
     else if (name === "create_artifact") [result, extra] = makeArtifact(c, args);
     else if (name === "ask_agent") [result, extra] = await askAgent(c, call.id, args);
+    else if (name === "ask_user") result = "The poll is on screen. Wait for the user's answer in their next message.";
     else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
   } catch (e) { result = `ERROR: ${e.message || e}`; }
   if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
@@ -885,11 +911,38 @@ function toolHtml(call, result) {
     const art = (chat.artifacts || []).find(x => result && x.id === result.artifact) || (chat.artifacts || []).find(x => x.title === a.title);
     return art ? artifactCard(art) : "";
   }
+  if (name === "ask_user") return pollHtml(call.id, a, !result || isLatestPoll(call.id));
   if (name === "ask_agent") {
     const log = (result?.agent_log || []).map(e => e.content ? md(e.content) : "").join("") || esc(result?.content || "Working...");
     return `<div class="agentbox">${step("person", `Asked ${result?.agent || a.agent}: ${a.task || ""}`, log, "", true)}</div>`;
   }
   return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
+}
+// A poll from ask_user: tap an option to answer it (multiple: pick, then Send).
+const polls = {};
+function isLatestPoll(id) {
+  const i = chat.messages.findIndex(m => (m.tool_calls || []).some(t => t.id === id));
+  return i >= 0 && !chat.messages.slice(i + 1).some(m => m.role === "user") && !job;
+}
+function pollHtml(id, a, open) {
+  const options = (Array.isArray(a.options) ? a.options : []).map(String).slice(0, 6);
+  polls[id] = {options, multiple: !!a.multiple, picked: new Set()};
+  const buttons = options.map((o, i) => `<button class="poll-opt" ${open ? "" : "disabled"} onclick="pollTap('${id}', ${i}, this)">${esc(o)}</button>`).join("");
+  return `<div class="poll"><div class="poll-q">${esc(a.question || "")}</div><div class="poll-opts">${buttons}</div>
+    ${open && a.multiple ? `<button class="filled poll-send" onclick="pollSend('${id}')">Send</button>` : ""}
+    ${open ? `<small>Or type your own answer below.</small>` : ""}</div>`;
+}
+function pollTap(id, i, el) {
+  const p = polls[id];
+  if (!p.multiple) { $("input").value = p.options[i]; send(); return; }
+  p.picked.has(i) ? p.picked.delete(i) : p.picked.add(i);
+  el.classList.toggle("on", p.picked.has(i));
+}
+function pollSend(id) {
+  const p = polls[id];
+  if (!p.picked.size) return toast("Pick at least one");
+  $("input").value = [...p.picked].sort().map(i => p.options[i]).join(", ");
+  send();
 }
 function toolIcon(name) { return name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : "globe"; }
 function toolLabel(name, a) {

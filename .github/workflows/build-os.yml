@@ -29,12 +29,12 @@ jobs:
           git clone --depth 1 --branch "$tag" https://github.com/ggml-org/llama.cpp llama.cpp
           docker run --rm -v "$PWD:/w" -w /w debian:trixie os/build-engine.sh
 
-      - name: Download the Quick model
+      - name: Download the model (Qwen 3, 1.7B: thinks before it answers)
         run: |
-          repo=bartowski/Qwen2.5-1.5B-Instruct-GGUF
+          repo=unsloth/Qwen3-1.7B-GGUF
           name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_k_m' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
           echo "Packing in $repo/$name"
-          curl -fL --retry 3 -o os/quick.gguf "https://huggingface.co/$repo/resolve/main/$name"
+          curl -fL --retry 3 -o os/model.gguf "https://huggingface.co/$repo/resolve/main/$name"
 
       - name: Build the disk image
         run: docker run --rm --privileged -v "$PWD:/w" -w /w debian:trixie os/build.sh
