@@ -1,0 +1,68 @@
+name: Build Desk OS
+
+on:
+  push:
+    branches: [main]
+    paths: ["os/**", ".github/workflows/build-os.yml", "android/app/src/main/assets/index.html"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
+          df -h .
+
+      - name: Build the AI engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo ggml-org/llama.cpp --json tagName -q .tagName)
+          echo "Using llama.cpp $tag"
+          git clone --depth 1 --branch "$tag" https://github.com/ggml-org/llama.cpp llama.cpp
+          docker run --rm -v "$PWD:/w" -w /w debian:trixie os/build-engine.sh
+
+      - name: Download the Quick model
+        run: |
+          repo=bartowski/Qwen2.5-1.5B-Instruct-GGUF
+          name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_k_m' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
+          echo "Packing in $repo/$name"
+          curl -fL --retry 3 -o os/quick.gguf "https://huggingface.co/$repo/resolve/main/$name"
+
+      - name: Build the disk image
+        run: docker run --rm --privileged -v "$PWD:/w" -w /w debian:trixie os/build.sh
+
+      - name: Put Desk OS on the download page
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: os-latest
+          name: Desk OS
+          make_latest: false
+          overwrite_files: true
+          body: |
+            **DeskOS.zip** is the whole Desk OS disk. Write it to a USB stick (8 GB or bigger)
+            with the Chromebook Recovery Utility, then start the computer from the stick.
+            Built from ${{ github.sha }}.
+          files: os/DeskOS.zip
+
+      - name: Save the image in pieces
+        # For checking the image without the release page: join the pieces in order.
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir pieces && cd pieces
+          split -b 90m -d -a 2 ../os/DeskOS.zip DeskOS.zip.part
+          sha256sum ../os/DeskOS.zip | cut -d' ' -f1 > DeskOS.zip.sha256
+          git init -b deskos
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Desk OS built from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" deskos

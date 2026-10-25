@@ -1,0 +1,10 @@
+#!/bin/bash
+# Desk OS's screen: Desk Agent full screen in a kiosk window, nothing else.
+for i in $(seq 1 120); do
+  curl -sf http://127.0.0.1:8080/health >/dev/null && break
+  sleep 1
+done
+exec cage -s -- chromium --ozone-platform=wayland --kiosk --no-first-run --noerrdialogs \
+  --disable-infobars --disable-session-crashed-bubble --password-store=basic \
+  --allow-file-access-from-files --user-data-dir="$HOME/.deskos-browser" \
+  "file:///opt/deskos/app/index.html?engine=8080&builtin=quick"

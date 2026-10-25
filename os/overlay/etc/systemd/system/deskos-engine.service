@@ -1,0 +1,12 @@
+[Unit]
+Description=Desk OS AI engine
+After=local-fs.target
+
+[Service]
+ExecStart=/opt/deskos/engine/llama-server -m /opt/deskos/models/quick.gguf --host 127.0.0.1 --port 8080 -c 8192 --jinja
+DynamicUser=yes
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

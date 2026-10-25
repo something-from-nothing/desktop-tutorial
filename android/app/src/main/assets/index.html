@@ -363,15 +363,18 @@ const pending = {}; let seq = 0;
 window.__bridgeReply = raw => { const m = JSON.parse(raw), p = pending[m.id]; delete pending[m.id]; if (p) m.error ? p.reject(new Error(m.error)) : p.resolve(m.value); };
 window.__bridgeEvent = raw => onBridgeEvent(JSON.parse(raw));
 const B = window.Android || (() => {
-  const enginePort = +(new URLSearchParams(location.search).get("engine") || 0);
+  const params = new URLSearchParams(location.search), enginePort = +(params.get("engine") || 0);
   const ls = k => localStorage.getItem("da:" + k);
+  // Desk OS starts the page with ?builtin=KEY: that model is on the disk and it's the only one.
+  const builtin = params.get("builtin");
+  if (builtin) { localStorage.setItem("da:_models", JSON.stringify({[builtin]: 1e9})); localStorage.setItem("da:_builtin", JSON.stringify([builtin])); }
   return {
     read: p => ls(p), write: (p, t) => (localStorage.setItem("da:" + p, t), true),
     list: dir => JSON.stringify(Object.keys(localStorage).filter(k => k.startsWith("da:" + dir + "/")).map(k => k.slice(dir.length + 4))),
     remove: p => (localStorage.removeItem("da:" + p), true),
     models: () => ls("_models") || "{}", builtInModels: () => ls("_builtin") || "[]", deleteModel: k => { const m = JSON.parse(ls("_models") || "{}"); delete m[k]; localStorage.setItem("da:_models", JSON.stringify(m)); return true; },
     cancelDownload: () => {}, freeSpace: () => 64e9, memory: () => 12e9, loaded: () => null,
-    isBackground: () => false, phoneEnabled: () => localStorage.getItem("da:_phone") === "on", openPhoneSettings: () => localStorage.setItem("da:_phone", "on"),
+    isBackground: () => false, phoneEnabled: () => !builtin && localStorage.getItem("da:_phone") === "on", openPhoneSettings: () => localStorage.setItem("da:_phone", "on"),
     keepAlive: () => {}, bringToFront: () => {}, openWebsite: k => { window.__opened = k; }, exactAlarmsAllowed: () => true, openAlarmSettings: () => {}, notificationsAllowed: () => true,
     askForNotifications: () => {}, schedulesChanged: () => { window.__schedulesChanged = (window.__schedulesChanged || 0) + 1; },
     scheduledDone: (chatId, title, text) => { window.__scheduledDone = {chatId, title, text}; },
@@ -380,9 +383,17 @@ const B = window.Android || (() => {
       try {
         if (method === "startEngine") return reply(enginePort);
         if (method === "httpGet") return reply(await (await fetch(a.url)).text());
+        if (method === "saveDownload" && builtin) {
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(new Blob([a.content], {type: a.mime || "text/plain"}));
+          link.download = a.name; link.click();
+          return reply("Downloads/" + a.name);
+        }
         if (method === "saveDownload") return reply("Downloads/" + a.name);
+        if (method.startsWith("phone") && builtin) return reply(null, "Phone control is only in the phone app.");
         if (method === "phoneRead") return reply("App on screen: Notes\n[1] button \"New note\"\n[2] text field hint \"Title\"");
         if (method.startsWith("phone")) return reply(`${method} ok`);
+        if (method === "download" && builtin) return reply(null, "This version has one model built in, so there's nothing to download.");
         if (method === "download") { reply(true); const m = JSON.parse(ls("_models") || "{}"); m[a.key] = 1e9; localStorage.setItem("da:_models", JSON.stringify(m));
           setTimeout(() => window.__bridgeEvent(JSON.stringify({type: "download", key: a.key, done: 1e9, total: 1e9, status: "done"})), 300); return; }
         reply(true);
