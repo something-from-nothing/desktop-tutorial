@@ -871,7 +871,7 @@ function renderChat() {
     const ready = installed().length;
     box.innerHTML = `<div id="empty"><span class="mark">${icon("spark")}</span>
       <h1>${ready ? greeting() : "Welcome"}</h1>
-      <p>${ready ? "Runs on this phone. Works without the internet." : "Download a model to get started. It's a one off, and then it works offline."}</p>
+      <p>${ready ? `Runs on this ${window.Android ? "phone" : "computer"}. Works without the internet.` : "Download a model to get started. It's a one off, and then it works offline."}</p>
       ${ready ? "" : `<button class="filled" onclick="showModels()">Choose a model</button>`}</div>`;
     return;
   }
