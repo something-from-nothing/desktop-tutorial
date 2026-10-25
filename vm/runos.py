@@ -1,7 +1,7 @@
 """Run OS: try an operating system in a window on Windows, without touching Windows.
 
-Double click RunOS.exe to run Desk OS (DeskOS.zip, or its numbered pieces, in
-Downloads), drag any .zip, .bin,
+Double click RunOS.exe to run Desk OS: it downloads Desk OS itself (and any newer
+version later), or offline uses DeskOS.zip or its pieces in Downloads. Drag any .zip, .bin,
 .img or .iso onto it, or pick one when it asks. The first time, it installs QEMU (a
 free program that runs a computer inside a window) into the user's own folder.
 """
@@ -18,6 +18,7 @@ HOME = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "RunOS"
 QEMU_DIR = HOME / "qemu"
 QEMU = QEMU_DIR / "qemu-system-x86_64.exe"
 QEMU_SITE = "https://qemu.weilnetz.de/w64/"
+DESK_OS_URL = "https://github.com/something-from-nothing/desktop-tutorial/releases/download/os-latest/DeskOS.zip"
 IMAGES = (".bin", ".img", ".iso", ".raw")
 
 
@@ -47,6 +48,11 @@ def pick_file():
     """The OS to run: what was dropped on the EXE, else DeskOS.zip in Downloads, else ask."""
     if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         return Path(sys.argv[1])
+    # The downloaded Desk OS comes first, so a newer version always wins over an old
+    # copy left in Downloads; that copy (or its pieces) is only used offline.
+    fetched = fetch_desk_os()
+    if fetched:
+        return fetched
     downloads = Path.home() / "Downloads"
     desk = downloads / "DeskOS.zip"
     if not desk.exists():
@@ -63,6 +69,42 @@ def pick_file():
     if not chosen:
         raise SystemExit("No OS chosen.")
     return Path(chosen)
+
+
+def fetch_desk_os():
+    """Downloads Desk OS the first time, and again whenever a newer build is out (the
+    size changes with every build). Returns its path, or None if it can't be reached."""
+    target = HOME / "DeskOS.zip"
+    try:
+        with urllib.request.urlopen(urllib.request.Request(DESK_OS_URL, method="HEAD"), timeout=60) as r:
+            size = int(r.headers.get("Content-Length") or 0)
+    except Exception as e:
+        if target.exists():
+            return target  # offline: use the copy we have
+        if "404" in str(e):
+            raise SystemExit("The Desk OS download isn't public yet. Make the GitHub project public, then run this again.")
+        say(f"Couldn't reach the Desk OS download ({e}).")
+        return None
+    if target.exists() and target.stat().st_size == size:
+        return target
+    say("Downloading Desk OS (about 1.8 GB). This happens once, and again only when there's a new version."
+        if not target.exists() else "A newer Desk OS is out. Downloading it (about 1.8 GB).")
+    part = HOME / "DeskOS.zip.download"
+    with urllib.request.urlopen(DESK_OS_URL, timeout=60) as r, open(part, "wb") as out:
+        done, shown = 0, -1
+        while chunk := r.read(1 << 20):
+            out.write(chunk)
+            done += len(chunk)
+            pct = done * 100 // size if size else 0
+            if pct != shown:
+                print(f"\r  {pct}%  ({done // 2**20} of {size // 2**20} MB)", end="", flush=True)
+                shown = pct
+    print()
+    if size and part.stat().st_size != size:
+        part.unlink()
+        raise SystemExit("The download stopped part way. Run this again to retry.")
+    part.replace(target)
+    return target
 
 
 def join_pieces(folder):
