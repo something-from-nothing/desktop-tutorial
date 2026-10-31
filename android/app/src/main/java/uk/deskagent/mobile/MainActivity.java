@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
         s.setMediaPlaybackRequiresUserGesture(true);
         bridge = new Bridge(this, web, false, () -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2));
+        bridge.askPermission = p -> requestPermissions(new String[]{p}, 3);
         web.addJavascriptInterface(bridge, "Android");
         web.setWebViewClient(new WebViewClient() {
             @Override

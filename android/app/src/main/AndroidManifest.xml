@@ -10,7 +10,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-    <!-- No contacts, location, camera, microphone or storage. -->
+    <!-- Only when you ask the AI about your calendar or contacts: Android asks you first. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- No location, camera, microphone or storage. -->
 
     <!-- Lets "open an app" see which apps can be opened, without listing every package. -->
     <queries>

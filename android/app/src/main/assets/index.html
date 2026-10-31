@@ -146,6 +146,10 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 #empty .mark svg.i { width: 26px; height: 26px; }
 #empty h1 { font-size: 22px; font-weight: 500; color: var(--text); margin: 18px 0 6px; letter-spacing: -.01em; }
 #empty p { margin: 0 0 20px; font-size: 15px; }
+#empty .upgrade { margin-top: 28px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; display: grid; gap: 6px; }
+#empty .upgrade b { color: var(--text); font-weight: 500; }
+#empty .upgrade span { font-size: 14px; }
+#empty .upgrade button { justify-self: start; margin-top: 4px; }
 
 /* ---- message bar ---- */
 #composer { width: 100%; max-width: 800px; margin: 0 auto; padding: 0 12px 12px; }
@@ -346,11 +350,11 @@ const STYLES = {
 };
 // Built in agents. Tool groups: web, artifacts, delegate.
 const BUILTIN_AGENTS = {
-  assistant: {name: "Assistant", blurb: "Everyday help. Can ask the others", model: "auto", tools: ["web", "artifacts", "delegate"],
+  assistant: {name: "Assistant", blurb: "Everyday help. Can ask the others", model: "auto", tools: ["web", "info", "mydata", "artifacts", "delegate"],
     instructions: "You are a capable general assistant. Handle the job yourself, or hand a self contained part to a specialist agent with ask_agent when that will do it better."},
   coder: {name: "Coder", blurb: "Writes code and small apps", model: "coder", tools: ["artifacts"],
     instructions: "You are a careful programmer. Plan briefly and write clean, complete, working code with short comments. For a web page or small app, show it with create_artifact so the user can try it."},
-  researcher: {name: "Researcher", blurb: "Searches the web and gives sources", model: "general", tools: ["web"],
+  researcher: {name: "Researcher", blurb: "Searches the web and gives sources", model: "general", tools: ["web", "info"],
     instructions: "You research questions. Search the web, read the most relevant pages, compare sources, and give a clear answer with the links you used. Say when sources disagree or you are unsure."},
   writer: {name: "Writer", blurb: "Emails, posts, letters and stories", model: "general", tools: ["artifacts"],
     instructions: "You write and edit: emails, posts, letters, reports, stories. Match the reader and purpose, keep it plain and human, and put long finished pieces in a markdown artifact."},
@@ -561,6 +565,17 @@ const TOOL_GROUPS = {
     tool("press", "Press one of the phone's own buttons.", {button: {type: "string", enum: ["back", "home", "recents", "notifications"]}}, ["button"]),
     tool("list_apps", "List the names of the apps installed on the phone.", {}, []),
   ],
+  info: [
+    tool("get_weather", "Current weather and the next 3 days for a place.", {place: {type: "string", description: "Town or city, for example Enfield"}}, ["place"]),
+    tool("wikipedia", "Look up a topic on Wikipedia and get the article's main text. Good for facts about people, places, history and science.", {topic: {type: "string"}}, ["topic"]),
+    tool("get_news", "Today's top news headlines with links, on a topic or overall.", {topic: {type: "string", description: "Leave out for the top UK stories"}}, []),
+    tool("convert_currency", "Convert money between currencies at today's rate.", {amount: {type: "number"}, from: {type: "string", description: "Code, for example GBP"}, to: {type: "string", description: "Code, for example EUR"}}, ["amount", "from", "to"]),
+    tool("calculate", "Work out a maths expression exactly, for example (12.5*4)/3 or sqrt(2)^3.", {expression: {type: "string"}}, ["expression"]),
+  ],
+  mydata: [
+    tool("read_calendar", "Read the events in the user's phone calendar from now on.", {days: {type: "integer", description: "How many days ahead, default 7"}}, []),
+    tool("find_contact", "Find a person in the user's phone contacts, with their numbers and email addresses.", {name: {type: "string"}}, ["name"]),
+  ],
   media: [
     tool("create_image", "Make a picture from a detailed description and show it to the user.",
       {prompt: {type: "string", description: "Detailed English description of the picture"}, shape: {type: "string", enum: ["square", "portrait", "landscape"]}}, ["prompt"]),
@@ -579,6 +594,8 @@ const TOOL_GROUPS = {
   ],
 };
 const GROUP_PROMPTS = {
+  info: "For anything that changes (weather, news, prices, rates) or any fact you aren't sure of, look it up with your tools instead of answering from memory: get_weather, get_news, convert_currency, wikipedia. Use calculate for any sum. Say which source you used.",
+  mydata: "You can read the user's own phone calendar (read_calendar) and contacts (find_contact) when they ask about their plans or a person.",
   media: "You can make pictures with create_image.",
   mcp: "Connected services you can use through their tools: {connectors}.",
   remind: "You can set reminders with set_reminder; the user gets a notification at that time.",
@@ -635,7 +652,7 @@ let job = null;  // {chatId, controller}
 
 // Helper agents (allowDelegate false) can't ask the user anything: only the main chat can.
 function agentGroups(agent, allowDelegate) {
-  return [...(agent.tools || []), ...(allowDelegate ? ["remind"] : []), ...(allowDelegate && !B.isBackground() ? ["ask"] : []), ...(allowDelegate && mcpTools.length ? ["mcp"] : [])].filter(g => g !== "delegate" || allowDelegate);
+  return [...(agent.tools || []).filter(g => g !== "mydata" || window.Android), ...(allowDelegate ? ["remind"] : []), ...(allowDelegate && !B.isBackground() ? ["ask"] : []), ...(allowDelegate && mcpTools.length ? ["mcp"] : [])].filter(g => g !== "delegate" || allowDelegate);
 }
 function toolsFor(agent, allowDelegate = true) {
   return agentGroups(agent, allowDelegate).flatMap(g => g === "mcp" ? mcpTools.map(t => t.def) : TOOL_GROUPS[g] || []);
@@ -789,6 +806,7 @@ async function runTool(c, call, sub) {
     else if (name === "ask_user") result = "The poll is on screen. Wait for the user's answer in their next message.";
     else if (name === "create_image") [result, extra] = await makeImage(c, args);
     else if (name === "set_reminder") result = setReminder(args);
+    else if (INFO_TOOLS[name]) result = await INFO_TOOLS[name](args);
     else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
   } catch (e) { result = `ERROR: ${e.message || e}`; }
   if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
@@ -940,7 +958,9 @@ function renderChat() {
     box.innerHTML = `<div id="empty"><span class="mark">${icon("spark")}</span>
       <h1>${ready ? greeting() : "Welcome"}</h1>
       <p>${ready ? `Runs on this ${window.Android ? "phone" : "computer"}. Works without the internet.` : "Download a model to get started. It's a one off, and then it works offline."}</p>
-      ${ready ? "" : `<button class="filled" onclick="showModels()">Choose a model</button>`}</div>`;
+      ${ready ? "" : `<button class="filled" onclick="showModels()">Choose a model</button>`}
+      ${ready && smarterModel() ? `<div class="upgrade"><b>Make it smarter</b><span>${CATALOG.general.label} (${CATALOG.general.detail}) understands far more and uses its tools properly. ${CATALOG.general.size_gb} GB, over Wi-Fi, once.</span>
+        <button class="tonal" onclick="showModels()">Get ${CATALOG.general.label}</button></div>` : ""}</div>`;
     return;
   }
   const results = {}; chat.messages.filter(m => m.role === "tool").forEach(m => results[m.tool_call_id] = m);
@@ -967,6 +987,11 @@ function renderChat() {
   box.innerHTML = out;
   box.scrollTop = box.scrollHeight;
 }
+// On a phone with memory to spare, suggest the bigger model until it's downloaded.
+function smarterModel() {
+  if (!window.Android || installed().includes("general") || downloads.general) return false;
+  return B.memory() >= 7e9 && B.freeSpace() > 4e9;
+}
 function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
 function step(iconName, label, detail, cls = "", isMd = false) {
   return `<details class="step ${cls}"><summary>${icon(iconName)}<span class="txt">${esc(label)}</span>${icon("chev", "width:16px;height:16px").replace('class="i"', 'class="i chev"')}</summary>
@@ -990,6 +1015,66 @@ function toolHtml(call, result) {
   }
   return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
 }
+// ------------------------------------------------ looking things up (free sources, no keys)
+
+const getJSON = async url => JSON.parse(await bridge("httpGet", {url}));
+const WEATHER = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "fog", 48: "freezing fog", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle",
+  61: "light rain", 63: "rain", 65: "heavy rain", 66: "freezing rain", 67: "heavy freezing rain", 71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains",
+  80: "light showers", 81: "showers", 82: "heavy showers", 85: "snow showers", 86: "heavy snow showers", 95: "thunderstorms", 96: "thunderstorms with hail", 99: "thunderstorms with heavy hail"};
+const INFO_TOOLS = {
+  // Open-Meteo: free weather, no key.
+  async get_weather(a) {
+    const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(a.place)}`);
+    const pl = g.results?.[0];
+    if (!pl) return `ERROR: couldn't find a place called ${a.place}.`;
+    const w = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${pl.latitude}&longitude=${pl.longitude}&timezone=auto&forecast_days=3` +
+      "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&wind_speed_unit=mph");
+    const c = w.current, d = w.daily;
+    const days = d.time.map((t, i) => `${new Date(t).toLocaleDateString("en-GB", {weekday: "long"})}: ${WEATHER[d.weather_code[i]] || "mixed"}, ${Math.round(d.temperature_2m_min[i])} to ${Math.round(d.temperature_2m_max[i])}°C, ${d.precipitation_probability_max[i]}% chance of rain`);
+    return `${pl.name}${pl.admin1 ? ", " + pl.admin1 : ""}, ${pl.country} (source: Open-Meteo)\nNow: ${WEATHER[c.weather_code] || "mixed"}, ${Math.round(c.temperature_2m)}°C (feels like ${Math.round(c.apparent_temperature)}°C), wind ${Math.round(c.wind_speed_10m)} mph, humidity ${c.relative_humidity_2m}%\n${days.join("\n")}`;
+  },
+  async wikipedia(a) {
+    const api = "https://en.wikipedia.org/w/api.php?format=json&origin=*&action=query";
+    const found = await getJSON(`${api}&list=search&srlimit=1&srsearch=${encodeURIComponent(a.topic)}`);
+    const title = found.query?.search?.[0]?.title;
+    if (!title) return `Nothing on Wikipedia for "${a.topic}".`;
+    const page = await getJSON(`${api}&prop=extracts&explaintext=1&redirects=1&titles=${encodeURIComponent(title)}`);
+    const text = Object.values(page.query.pages)[0].extract || "";
+    return `Wikipedia: ${title} (https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))})\n\n${text.slice(0, 5000)}`;
+  },
+  async get_news(a) {
+    const url = a.topic ? `https://news.google.com/rss/search?hl=en-GB&gl=GB&ceid=GB:en&q=${encodeURIComponent(a.topic)}` : "https://feeds.bbci.co.uk/news/rss.xml";
+    const doc = new DOMParser().parseFromString(await bridge("httpGet", {url}), "text/xml");
+    const items = [...doc.querySelectorAll("item")].slice(0, 8).map(it => {
+      const t = it.querySelector("title")?.textContent?.trim(), date = it.querySelector("pubDate")?.textContent;
+      return `${t}${date ? ` (${new Date(date).toLocaleDateString("en-GB", {day: "numeric", month: "short"})})` : ""}\n${it.querySelector("link")?.textContent?.trim() || ""}`;
+    });
+    return items.length ? `${a.topic ? "Google News" : "BBC News"}:\n\n${items.join("\n\n")}` : "No news found.";
+  },
+  // Frankfurter: European Central Bank rates, free, no key.
+  async convert_currency(a) {
+    const from = String(a.from).toUpperCase(), to = String(a.to).toUpperCase();
+    const r = await getJSON(`https://api.frankfurter.app/latest?amount=${+a.amount}&from=${from}&to=${to}`);
+    if (!r.rates?.[to]) return `ERROR: couldn't convert ${from} to ${to}.`;
+    return `${a.amount} ${from} = ${r.rates[to]} ${to} (European Central Bank rate for ${r.date}, via Frankfurter)`;
+  },
+  calculate(a) { return calculate(a.expression); },
+};
+// Plain maths only: numbers, + - * / ^ % brackets and a few named functions.
+function calculate(expr) {
+  const src = String(expr).replace(/×/g, "*").replace(/÷/g, "/").replace(/\^/g, "**").replace(/,(?=\d{3}\b)/g, "");
+  const named = src.replace(/\b(sqrt|abs|round|floor|ceil|sin|cos|tan|log|ln|exp|pi|e|min|max|pow)\b/gi, "");
+  if (/[^\d\s+\-*/%().,]/.test(named)) return "ERROR: only numbers, + - * / ^ % and brackets, sqrt, round, log and similar are allowed.";
+  const scope = {sqrt: Math.sqrt, abs: Math.abs, round: Math.round, floor: Math.floor, ceil: Math.ceil, sin: Math.sin, cos: Math.cos, tan: Math.tan,
+    log: Math.log10, ln: Math.log, exp: Math.exp, pi: Math.PI, e: Math.E, min: Math.min, max: Math.max, pow: Math.pow};
+  try {
+    const value = Function(...Object.keys(scope), `"use strict"; return (${src.replace(/\b(sqrt|abs|round|floor|ceil|sin|cos|tan|log|ln|exp|pi|e|min|max|pow)\b/gi, m => m.toLowerCase())});`)(...Object.values(scope));
+    return Number.isFinite(value) ? `${expr} = ${+value.toPrecision(12)}` : "ERROR: that doesn't give a number.";
+  } catch (e) { return "ERROR: couldn't read that sum."; }
+}
+INFO_TOOLS.read_calendar = a => bridge("phoneCalendar", {days: a.days || 7});
+INFO_TOOLS.find_contact = a => bridge("phoneContacts", {name: a.name});
+
 // ------------------------------------------------ pictures
 
 // Pictures come from Pollinations, a free online image service that needs no key.
@@ -1054,6 +1139,10 @@ function toolLabel(name, a) {
   if (PHONE_TOOLS[name]) return PHONE_TOOLS[name](a);
   if (name === "web_search") return `Searched for “${a.query}”`;
   if (name === "set_reminder") return `Reminder set: ${a.text} (${a.date} ${a.time})`;
+  const infoLabel = {get_weather: () => `Checked the weather for ${a.place}`, wikipedia: () => `Looked up ${a.topic} on Wikipedia`,
+    get_news: () => a.topic ? `Checked the news on ${a.topic}` : "Checked the news", convert_currency: () => `Converted ${a.amount} ${a.from} to ${a.to}`,
+    calculate: () => `Worked out ${a.expression}`, read_calendar: () => "Read your calendar", find_contact: () => `Looked up ${a.name} in your contacts`}[name];
+  if (infoLabel) return infoLabel();
   const mt = mcpTools.find(t => t.def.function.name === name);
   if (mt) return `Used ${mt.server.name}: ${mt.tool.name.replace(/_/g, " ")}`;
   if (name === "read_webpage") { try { return `Read ${new URL(a.url).hostname.replace(/^www\./, "")}`; } catch (e) { return "Read a web page"; } }

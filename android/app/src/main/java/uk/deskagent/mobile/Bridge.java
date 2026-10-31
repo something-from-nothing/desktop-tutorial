@@ -39,6 +39,8 @@ class Bridge {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final boolean background;
     private final Runnable askNotifications;
+    /** Set by the app window: asks Android for a permission (the page can't). */
+    java.util.function.Consumer<String> askPermission;
     /** Set by the background runner: called when a scheduled chat finishes. */
     Runnable onScheduledDone;
 
@@ -346,6 +348,19 @@ class Bridge {
                     case "saveUrl":
                         resolve(id, core.saveBytes(a.getString("name"), Core.get(a.getString("url"), 30_000_000), a.optString("mime", "image/jpeg")), null);
                         break;
+                    case "phoneCalendar":
+                    case "phoneContacts": {
+                        boolean cal = method.equals("phoneCalendar");
+                        String permission = cal ? PhoneData.CALENDAR : PhoneData.CONTACTS;
+                        if (!PhoneData.allowed(context, permission)) {
+                            if (askPermission == null) throw new Exception("The phone's " + (cal ? "calendar" : "contacts") + " can't be read in a scheduled chat until it's allowed in the app.");
+                            ui.post(() -> askPermission.accept(permission));
+                            throw new Exception("Asked the user to allow reading their " + (cal ? "calendar" : "contacts")
+                                    + ". Tell them to tap Allow, then ask again.");
+                        }
+                        resolve(id, cal ? PhoneData.calendar(context, a.optInt("days", 7)) : PhoneData.contacts(context, a.getString("name")), null);
+                        break;
+                    }
                     case "phoneRead":
                         resolve(id, PhoneControl.readScreen(), null);
                         break;

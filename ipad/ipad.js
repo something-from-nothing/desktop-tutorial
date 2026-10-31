@@ -23,7 +23,7 @@
   const markGpuBroken = () => { gpuBroken = true; };
   const CONTEXT_CHARS = 9000;  // the model holds 4096 tokens; leave room for the answer
   // Tools that work in a browser. Web search can't (sites block other pages reading them).
-  const IPAD_TOOLS = ["ask_user", "set_reminder", "create_artifact", "create_image"];
+  const IPAD_TOOLS = ["ask_user", "set_reminder", "create_artifact", "create_image", "get_weather", "wikipedia", "convert_currency", "calculate"];
   let engine = null, mode = null, loading = null, failed = null, gpuWorked = false;
 
   const status = t => { try { window.setStatus && setStatus(t); } catch (e) {} };
