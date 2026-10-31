@@ -44,7 +44,23 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- The Dashboard's own icon: Desk Agent opened straight on its Dashboard. Same app,
+             same data, so there's nothing to connect or pair. -->
+        <activity-alias
+            android:name=".Dashboard"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="@string/dash_short"
+            android:icon="@mipmap/ic_dashboard"
+            android:roundIcon="@mipmap/ic_dashboard">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Tells Android Auto this app has messaging style notifications it can read out. -->
         <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />

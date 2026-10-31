@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Dashboard icon: a chart (bars on a base line), in the middle 66dp safe zone of the 108dp icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M36,56h8a2,2 0 0 1 2,2v16h-12v-16a2,2 0 0 1 2,-2z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M50,36h8a2,2 0 0 1 2,2v36h-12v-36a2,2 0 0 1 2,-2z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M64,48h8a2,2 0 0 1 2,2v24h-12v-24a2,2 0 0 1 2,-2z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M32,76h44a2,2 0 0 1 0,4h-44a2,2 0 0 1 0,-4z" />
+</vector>

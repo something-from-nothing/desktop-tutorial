@@ -32,6 +32,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> filePicked;
     private boolean pageReady;
     private String openChatWhenReady;
+    private boolean openDashWhenReady;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -61,6 +62,7 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 pageReady = true;
                 if (openChatWhenReady != null) openChat(openChatWhenReady);
+                if (openDashWhenReady) openDash();
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
@@ -77,6 +79,7 @@ public class MainActivity extends Activity {
             }
         });
         openChatWhenReady = getIntent().getStringExtra("chat");
+        openDashWhenReady = wantsDash(getIntent());
         web.loadUrl("file:///android_asset/index.html");
         offerHomeScreenIcon();
     }
@@ -87,7 +90,10 @@ public class MainActivity extends Activity {
      */
     private void offerHomeScreenIcon() {
         SharedPreferences prefs = getSharedPreferences("app", MODE_PRIVATE);
-        if (prefs.getBoolean("icon_offered", false)) return;
+        if (prefs.getBoolean("icon_offered", false)) {
+            offerDashboardIcon(prefs);  // next time: the Dashboard's icon (one question at a time)
+            return;
+        }
         prefs.edit().putBoolean("icon_offered", true).apply();
         try {
             ShortcutManager sm = getSystemService(ShortcutManager.class);
@@ -102,10 +108,44 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Tapping a scheduled chat's notification opens that chat. */
+    /** Asks once to put the Dashboard's own icon on the home screen too. */
+    private void offerDashboardIcon(SharedPreferences prefs) {
+        if (prefs.getBoolean("dash_icon_offered", false)) return;
+        prefs.edit().putBoolean("dash_icon_offered", true).apply();
+        try {
+            ShortcutManager sm = getSystemService(ShortcutManager.class);
+            if (sm == null || !sm.isRequestPinShortcutSupported()) return;
+            Intent open = new Intent(this, MainActivity.class).setAction(Intent.ACTION_VIEW).putExtra("open", "dashboard");
+            sm.requestPinShortcut(new ShortcutInfo.Builder(this, "dashboard-home")
+                    .setShortLabel("Dashboard")
+                    .setLongLabel("Desk Agent Dashboard")
+                    .setIcon(Icon.createWithResource(this, R.mipmap.ic_dashboard))
+                    .setIntent(open)
+                    .build(), null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Opened from the Dashboard icon or shortcut. */
+    private static boolean wantsDash(Intent i) {
+        if (i == null) return false;
+        if ("dashboard".equals(i.getStringExtra("open"))) return true;
+        return i.getComponent() != null && i.getComponent().getClassName().endsWith(".Dashboard");
+    }
+
+    private void openDash() {
+        openDashWhenReady = false;
+        web.evaluateJavascript("window.openDash && openDash()", null);
+    }
+
+    /** Tapping a scheduled chat's notification opens that chat; the Dashboard icon opens the Dashboard. */
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (wantsDash(intent)) {
+            if (pageReady) openDash(); else openDashWhenReady = true;
+            return;
+        }
         String chat = intent.getStringExtra("chat");
         if (chat == null) return;
         if (pageReady) openChat(chat); else openChatWhenReady = chat;

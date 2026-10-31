@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Press and hold the Desk Agent icon: Dashboard (and drag it to the home screen if you like). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="dashboard"
+        android:enabled="true"
+        android:icon="@mipmap/ic_dashboard"
+        android:shortcutShortLabel="@string/dash_short"
+        android:shortcutLongLabel="@string/dash_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="uk.deskagent.mobile"
+            android:targetClass="uk.deskagent.mobile.MainActivity">
+            <extra android:name="open" android:value="dashboard" />
+        </intent>
+    </shortcut>
+</shortcuts>
