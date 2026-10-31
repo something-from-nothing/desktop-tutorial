@@ -2576,6 +2576,9 @@ function deleteConnector(id) {
   if (!window.Android && !new URLSearchParams(location.search).has("car-test")) $("carRow").hidden = true;  // only the phone has Android Auto
   const chats = Store.listChats();
   renderChat();  // always open on a fresh chat; earlier chats are in the menu
+  // The hidden copy that answers remote control while the window is closed: no setup screens,
+  // and the model only loads when something is actually asked.
+  if (new URLSearchParams(location.search).has("remote")) return;
   if (!installed().length) showModels();
   else {
     // Start loading the likely model now, so the first reply is quicker.

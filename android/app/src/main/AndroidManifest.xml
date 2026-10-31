@@ -49,6 +49,14 @@
         <!-- Tells Android Auto this app has messaging style notifications it can read out. -->
         <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />
 
+        <!-- Desk Agent Dashboard connects here without a code (only apps signed with Desk Agent's key). -->
+        <activity
+            android:name=".ConnectActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".RunService"
             android:exported="false"

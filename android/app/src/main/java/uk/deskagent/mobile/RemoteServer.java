@@ -49,6 +49,10 @@ final class RemoteServer {
     private ServerSocket socket;
     private volatile WebView page;
     private String code;
+    // When Desk Agent's window is closed, a hidden copy of its page answers instead.
+    private WebView hidden;
+    private Bridge hiddenBridge;
+    private volatile CountDownLatch hiddenLoaded;
 
     private RemoteServer(Context app) {
         this.app = app.getApplicationContext();
@@ -59,9 +63,60 @@ final class RemoteServer {
         return instance;
     }
 
-    /** The app page that answers requests (the main window's). */
+    /** The app page that answers requests (the main window's). Called on the main thread. */
     void attach(WebView web) {
         page = web;
+        if (web != null && hidden != null) {  // the real window is back: only one copy of the page at a time
+            hiddenBridge.detach();
+            hidden.destroy();
+            hidden = null;
+            hiddenLoaded = null;
+        }
+    }
+
+    /** Starts the hidden copy of the page (if needed) and waits for it to load. */
+    private WebView hiddenPage() throws InterruptedException {
+        CountDownLatch loaded = new CountDownLatch(1);
+        CountDownLatch made = new CountDownLatch(1);
+        ui.post(() -> {
+            if (page == null && hidden == null) {
+                hiddenLoaded = loaded;
+                hidden = new WebView(app);
+                hidden.getSettings().setJavaScriptEnabled(true);
+                hidden.getSettings().setDomStorageEnabled(true);
+                hidden.getSettings().setAllowFileAccess(true);
+                hiddenBridge = new Bridge(app, hidden, true, null);
+                hidden.addJavascriptInterface(hiddenBridge, "Android");
+                hidden.setWebViewClient(new android.webkit.WebViewClient() {
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        loaded.countDown();
+                    }
+                });
+                hidden.loadUrl("file:///android_asset/index.html?remote=1");
+            }
+            made.countDown();
+        });
+        made.await(5, TimeUnit.SECONDS);
+        CountDownLatch l = hiddenLoaded;
+        if (l != null) l.await(20, TimeUnit.SECONDS);
+        return page != null ? page : hidden;
+    }
+
+    /** A key for a device, as pairing gives. Desk Agent Dashboard on this phone gets one without a code. */
+    String issueKey() {
+        byte[] k = new byte[24];
+        random.nextBytes(k);
+        StringBuilder key = new StringBuilder();
+        for (byte b : k) key.append(String.format("%02x", b));
+        Set<String> keys = new HashSet<>(prefs().getStringSet("keys", new HashSet<>()));
+        keys.add(key.toString());
+        prefs().edit().putStringSet("keys", keys).apply();
+        return key.toString();
+    }
+
+    boolean knows(String key) {
+        return paired(key == null ? "" : key);
     }
 
     private SharedPreferences prefs() {
@@ -195,13 +250,15 @@ final class RemoteServer {
     /** Hands the request to the app page and waits for its answer. */
     private String[] ask(String method, String path, String body) throws Exception {
         WebView web = page;
+        if (web == null) web = hiddenPage();
         if (web == null) return new String[]{"503", "{\"error\":\"Open Desk Agent on the phone.\"}"};
+        final WebView target = web;
         String id = Long.toHexString(random.nextLong());
         CountDownLatch done = new CountDownLatch(1);
         waiting.put(id, done);
         String js = "window.remoteRequest ? remoteRequest(" + JSONObject.quote(id) + "," + JSONObject.quote(method) + ","
                 + JSONObject.quote(path) + "," + JSONObject.quote(body) + ") : Android.remoteReply(" + JSONObject.quote(id) + ", 503, '{}')";
-        ui.post(() -> web.evaluateJavascript(js, null));
+        ui.post(() -> target.evaluateJavascript(js, null));
         boolean answered = done.await(30, TimeUnit.SECONDS);
         waiting.remove(id);
         String[] r = replies.remove(id);
@@ -219,16 +276,10 @@ final class RemoteServer {
             send(out, 403, "{\"error\":\"That code isn't right. Check the code on the phone in Settings, Remote control.\"}");
             return;
         }
-        byte[] k = new byte[24];
-        random.nextBytes(k);
-        StringBuilder key = new StringBuilder();
-        for (byte b : k) key.append(String.format("%02x", b));
-        Set<String> keys = new HashSet<>(prefs().getStringSet("keys", new HashSet<>()));
-        keys.add(key.toString());
-        prefs().edit().putStringSet("keys", keys).apply();
+        String key = issueKey();
         synchronized (this) { code = String.format("%06d", random.nextInt(1_000_000)); }  // each code works once
         JSONObject r = new JSONObject();
-        r.put("key", key.toString());
+        r.put("key", key);
         r.put("name", Build.MANUFACTURER + " " + Build.MODEL);
         send(out, 200, r.toString());
         ui.post(() -> { WebView web = page; if (web != null) web.evaluateJavascript("window.onRemotePaired && onRemotePaired()", null); });

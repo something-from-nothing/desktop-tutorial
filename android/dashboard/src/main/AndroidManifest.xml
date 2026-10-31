@@ -4,6 +4,11 @@
     <!-- Talks to Desk Agent's remote control, on this phone or another one on the Wi-Fi. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Lets it find Desk Agent to connect to. -->
+    <queries>
+        <package android:name="uk.deskagent.mobile" />
+    </queries>
+
     <application
         android:label="Desk Agent Dashboard"
         android:icon="@mipmap/ic_launcher"

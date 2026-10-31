@@ -144,15 +144,41 @@ const ago = iso => {
 };
 
 // ------------------------------------------------ talking to the device
-async function api(method, path, body, device = current()) {
+// Desk Agent Dashboard (the app) connects to Desk Agent on the same phone by asking it
+// directly: no code. Desk Agent switches remote control on and hands back a key.
+const LOCAL = "127.0.0.1:8765";
+const isLocal = d => d && /^(127\.0\.0\.1|localhost):/.test(d.address);
+let connecting = null;
+function connectHere(oldKey) {
+  if (!window.DashApp) return Promise.reject(new Error("Not in the Dashboard app."));
+  connecting ||= new Promise((resolve, reject) => {
+    window.onDeskConnected = (key, error) => {
+      connecting = null;
+      if (!key) return reject(new Error(error || "Desk Agent didn't connect."));
+      saved.devices = saved.devices.filter(d => d.address !== LOCAL);
+      saved.devices.push({address: LOCAL, key, name: "This phone"});
+      saved.current ||= LOCAL; store.save(saved);
+      resolve(saved.devices.find(d => d.address === LOCAL));
+    };
+    DashApp.connect(oldKey || "");
+  });
+  return connecting;
+}
+
+async function api(method, path, body, device = current(), retried = false) {
   let res;
+  // Desk Agent on this phone stopped answering (restarted, or remote control switched off):
+  // ask it to connect again by itself, then try once more.
+  const reconnect = async () => api(method, path, body, await connectHere(device.key), true);
   try {
     res = await fetch(`http://${device.address}${path}`, {method, headers: {"Content-Type": "application/json", Authorization: "Bearer " + (device.key || "")},
       body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(35000)});
   } catch (e) {
+    if (isLocal(device) && window.DashApp && !retried) return reconnect();
     throw new Error("Can't reach the phone. Check it's on the same Wi-Fi, Desk Agent is open there, and remote control is switched on.");
   }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && isLocal(device) && window.DashApp && !retried) return reconnect();
   if (res.status === 401) { forget(device.address); throw new Error("The phone no longer knows this device. Pair again with a new code."); }
   if (!res.ok) throw new Error(data.error || `The phone said ${res.status}.`);
   return data;
@@ -169,12 +195,15 @@ function showPair(message) {
   $("head").hidden = !saved.devices.length; $("tabs").hidden = true;
   $("main").innerHTML = `<div class="page">
     <h1>${asDash ? "Connect to Desk Agent" : "Control another device"}</h1>
+    ${asDash && window.DashApp ? `<div class="row-buttons" style="justify-content:flex-start"><button class="filled" onclick="connectHere().then(() => go(home), e => showPair(e.message))">Connect to Desk Agent on this phone</button></div>
+      ${message ? `<p class="error">${esc(message)}</p>` : ""}
+      <h2>Or another phone on the Wi-Fi</h2>` : ""}
     <p class="sub">${asDash
-      ? `Open Desk Agent, then Remote control, and switch on "Let other devices control this phone". Enter the code it shows here. The address 127.0.0.1:8765 means Desk Agent on this phone; for another phone, use the address it shows (both on the same Wi-Fi).`
+      ? `On the other phone, open Desk Agent, then Remote control, and switch on "Let other devices control this phone". Enter the address and code it shows.`
       : `On the phone, open Desk Agent, then Remote control, and switch on "Let other devices control this phone". Enter the address and code it shows. Both devices need to be on the same Wi-Fi.`}</p>
     <div class="field"><label for="pAddr">Address</label><input id="pAddr" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="for example 192.168.1.23:8765"></div>
     <div class="field"><label for="pCode">Code</label><input id="pCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits"></div>
-    ${message ? `<p class="error">${esc(message)}</p>` : ""}
+    ${message && !(asDash && window.DashApp) ? `<p class="error">${esc(message)}</p>` : ""}
     <div class="row-buttons">${saved.devices.length ? `<button class="text" onclick="go(home)">Cancel</button>` : inApp ? `<button class="text" onclick="leave()">Cancel</button>` : ""}<button class="filled" id="pGo">Pair</button></div>
   </div>`;
   $("pGo").onclick = async () => {
@@ -191,7 +220,7 @@ function showPair(message) {
       go(home);
     } catch (e) { showPair(e.message); $("pAddr").value = address; }
   };
-  if (asDash && !saved.devices.length) $("pAddr").value = "127.0.0.1:8765";
+  if (asDash && !window.DashApp && !saved.devices.length) $("pAddr").value = LOCAL;
 }
 function showDevices() {
   stopPolling();
@@ -350,7 +379,12 @@ async function addSched() {
   catch (e) { $("sErr").hidden = false; $("sErr").textContent = e.message; }
 }
 
-current() ? go(home) : showPair();
+if (current()) go(home);
+else if (asDash && window.DashApp) {
+  // First time: connect to Desk Agent on this phone straight away.
+  $("main").innerHTML = `<div class="page"><h1>Desk Agent Dashboard</h1><p class="sub">Connecting to Desk Agent on this phone...</p></div>`;
+  connectHere().then(() => go(home), e => showPair(e.message));
+} else showPair();
 </script>
 </body>
 </html>
