@@ -23,6 +23,7 @@ curl -fsSL -o wllama.tgz "https://registry.npmjs.org/@wllama/wllama/-/wllama-$WL
 tar xzf wllama.tgz package/esm/index.js package/esm/wasm/wllama.wasm
 mv package/esm/index.js site/wllama.js && mv package/esm/wasm/wllama.wasm site/wllama.wasm && rm -rf package wllama.tgz
 cp ipad.js sw.js manifest.webmanifest icon-*.png site/
+cp -r ../android/app/src/main/assets/pdfjs site/pdfjs
 python3 - <<'PY'
 src = open("../android/app/src/main/assets/index.html").read()
 head = """<link rel="manifest" href="manifest.webmanifest">

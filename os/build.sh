@@ -34,6 +34,7 @@ root=$work/root
 cp -a overlay/. "$root/"
 mkdir -p "$root/opt/deskos/app" "$root/opt/deskos/models" "$root/opt/deskos/engine"
 cp ../android/app/src/main/assets/index.html "$root/opt/deskos/app/index.html"
+cp -r ../android/app/src/main/assets/pdfjs "$root/opt/deskos/app/pdfjs"
 cp -a engine/. "$root/opt/deskos/engine/"
 cp model.gguf "$root/opt/deskos/models/model.gguf"
 chmod +x "$root/opt/deskos/engine/llama-server" "$root"/opt/deskos/{desk-agent,grow-root,install-helper,install-to-drive}

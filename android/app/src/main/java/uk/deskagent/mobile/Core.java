@@ -97,9 +97,13 @@ final class Core {
         int port;
         try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
         int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 2));
-        ProcessBuilder pb = new ProcessBuilder(exe.getPath(), "-m", modelFile.getPath(), "--host", "127.0.0.1",
+        List<String> args = new ArrayList<>(java.util.Arrays.asList(exe.getPath(), "-m", modelFile.getPath(), "--host", "127.0.0.1",
                 "--port", String.valueOf(port), "-c", String.valueOf(context), "--jinja", "--reasoning-format", "none",
-                "-t", String.valueOf(threads));
+                "-t", String.valueOf(threads)));
+        // A model that sees photos has its picture reader in the same folder.
+        File[] reader = modelFile.getParentFile().listFiles((d, n) -> n.startsWith("mmproj") && n.endsWith(".gguf"));
+        if (reader != null && reader.length > 0) { args.add("--mmproj"); args.add(reader[0].getPath()); }
+        ProcessBuilder pb = new ProcessBuilder(args);
         pb.redirectErrorStream(true);
         File log = new File(app.getFilesDir(), "engine.log");
         pb.redirectOutput(log);
@@ -135,7 +139,7 @@ final class Core {
         for (File root : new File[]{modelsDir(), ModelDownloads.dir(app)}) {
             if (root == null) continue;
             try {
-                File[] files = safe(root, key).listFiles((d, n) -> n.endsWith(".gguf"));
+                File[] files = safe(root, key).listFiles((d, n) -> n.endsWith(".gguf") && !n.startsWith("mmproj"));
                 if (files != null && files.length > 0) return files[0];
             } catch (Exception ignored) {
             }
@@ -173,23 +177,32 @@ final class Core {
 
     void cancelDownload(String key) {
         ModelDownloads.cancel(app, key);
+        ModelDownloads.cancel(app, key + "#mmproj");
     }
 
     /** Finds the model's file on Hugging Face and hands it to Android's download manager. */
-    void download(String key, String repo, String quant) throws Exception {
+    void download(String key, String repo, String quant, String mmproj) throws Exception {
         JSONObject info = new JSONObject(new String(get("https://huggingface.co/api/models/" + repo, 5_000_000), StandardCharsets.UTF_8));
         JSONArray siblings = info.optJSONArray("siblings");
-        String name = null;
+        String name = null, reader = null;
         for (int i = 0; siblings != null && i < siblings.length(); i++) {
             String f = siblings.getJSONObject(i).getString("rfilename");
             String lower = f.toLowerCase();
-            if (lower.endsWith(".gguf") && lower.contains(quant.toLowerCase()) && !f.contains("-of-")
-                    && (name == null || f.length() < name.length())) name = f;
+            if (!lower.endsWith(".gguf") || f.contains("-of-")) continue;
+            if (lower.startsWith("mmproj")) {
+                // The photo reader: the smallest one (f16 rather than f32).
+                if (!mmproj.isEmpty() && (reader == null || f.length() < reader.length() || lower.contains("f16"))) reader = f;
+            } else if (lower.contains(quant.toLowerCase()) && (name == null || f.length() < name.length())) name = f;
         }
         if (name == null) throw new Exception("No " + quant + " file found in " + repo);
+        if (!mmproj.isEmpty() && reader == null) throw new Exception("No photo reader (mmproj) found in " + repo);
 
-        ModelDownloads.start(app, key, name, "https://huggingface.co/" + repo + "/resolve/main/"
-                + URLEncoder.encode(name, "UTF-8").replace("+", "%20"));
+        String base = "https://huggingface.co/" + repo + "/resolve/main/";
+        if (reader != null) ModelDownloads.start(app, key + "#mmproj", reader, base + URLEncoder.encode(reader, "UTF-8").replace("+", "%20"));
+        ModelDownloads.start(app, key, name, base + URLEncoder.encode(name, "UTF-8").replace("+", "%20"));
+        if (reader != null) new Thread(() -> {
+            try { watch(key + "#mmproj"); } catch (InterruptedException ignored) { }
+        }).start();
         watch(key);
     }
 

@@ -29,6 +29,12 @@ final class ModelDownloads {
         return d;
     }
 
+    /** KEY#mmproj (a model's photo reader) goes in the model's own folder, KEY. */
+    static String folderOf(String key) {
+        int hash = key.indexOf('#');
+        return hash < 0 ? key : key.substring(0, hash);
+    }
+
     private static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences("model_downloads", Context.MODE_PRIVATE);
     }
@@ -43,7 +49,7 @@ final class ModelDownloads {
 
     static void start(Context context, String key, String name, String url) throws Exception {
         cancel(context, key);
-        File folder = Core.safe(dir(context), key);
+        File folder = Core.safe(dir(context), folderOf(key));
         folder.mkdirs();
         File part = new File(folder, name + ".part");
         if (part.exists() && !part.delete()) throw new Exception("Couldn't clear an old part of the download.");
@@ -92,7 +98,7 @@ final class ModelDownloads {
             int status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
             if (status == DownloadManager.STATUS_SUCCESSFUL) {
                 String name = prefs(context).getString("name_" + key, null);
-                File folder = Core.safe(dir(context), key);
+                File folder = Core.safe(dir(context), folderOf(key));
                 File part = new File(folder, name + ".part");
                 if (name == null || !part.renameTo(new File(folder, name))) {
                     lastError = "The download finished but couldn't be saved.";

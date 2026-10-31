@@ -157,13 +157,19 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 #mode:empty { display: none; }
 #attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 6px; }
 #attachments .file { display: inline-flex; align-items: center; gap: 6px; background: var(--raised); border-radius: 10px; padding: 4px 4px 4px 10px; font-size: 13px; }
+#attachments .file img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; margin-left: -6px; }
+.sent-photo { display: block; max-width: min(260px, 70%); border-radius: 14px; margin-top: 6px; }
+#queued { display: flex; flex-direction: column; gap: 4px; padding: 0 4px 6px; }
+#queued .q { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); background: var(--raised); border-radius: 10px; padding: 4px 4px 4px 10px; }
+#queued .q span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#queued .q button { min-height: 28px; padding: 0 6px; color: var(--dim); }
 #attachments .file button { min-height: 28px; padding: 0 6px; color: var(--dim); }
 #composer .box { background: var(--surface); border: 1px solid var(--line); border-radius: 28px; padding: 4px; display: flex; align-items: flex-end; gap: 2px; }
 #composer textarea { flex: 1; border: 0; background: transparent; resize: none; min-height: 44px; max-height: 180px; padding: 11px 4px; border-radius: 0; }
 #composer textarea:focus { border: 0; }
 #sendBtn, #stopBtn { width: 44px; height: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--accent-text); flex-shrink: 0; }
 #sendBtn:disabled { background: var(--raised); color: var(--faint); opacity: 1; }
-#stopBtn { background: var(--text); color: var(--bg); }
+#stopBtn { background: var(--text); color: var(--accent-text); }
 
 /* ---- full screen view for finished work ---- */
 #panel { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
@@ -248,11 +254,12 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <div id="chat"></div>
   <div id="composer">
     <button id="mode" onclick="showOptions()"></button>
-    <div id="attachments"></div>
+    <div id="queued"></div>
+      <div id="attachments"></div>
     <div class="box">
       <button class="icon-btn" onclick="document.getElementById('file').click()" aria-label="Attach a file"><svg class="i"><use href="#i-clip"/></svg></button>
-      <input type="file" id="file" multiple hidden onchange="attach(this.files)">
-      <textarea id="input" rows="1" placeholder="Message" onkeydown="keydown(event)" oninput="autosize()"></textarea>
+      <input type="file" id="file" multiple hidden onchange="attach(this.files)" accept="image/*,.pdf,.docx,.txt,.md,.csv,.json,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.swift,.sh,.xml,.yml,.yaml,.sql,text/*">
+      <textarea id="input" rows="1" placeholder="Message" onkeydown="keydown(event)" oninput="autosize()" onpaste="pasted(event)"></textarea>
       <button class="icon-btn" onclick="showOptions()" aria-label="Options"><svg class="i"><use href="#i-tune"/></svg></button>
       <button id="stopBtn" onclick="stopJob()" hidden aria-label="Stop"><svg class="i" style="width:16px;height:16px"><use href="#i-stop"/></svg></button>
       <button id="sendBtn" onclick="send()" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button>
@@ -326,6 +333,8 @@ const CATALOG = {
           about: "Best at writing programs. Slower and uses more battery."},
   gemma: {label: "Gemma", maker: "Google", detail: "Gemma 3, 4B", repo: "unsloth/gemma-3-4b-it-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
           about: "A smaller relative of Gemini. Good at writing and other languages. Chat only."},
+  vision: {label: "Vision", maker: "Google", detail: "Gemma 3, 4B, sees photos", repo: "ggml-org/gemma-3-4b-it-GGUF", quant: "Q4_K_M", mmproj: "mmproj", vision: true, size_gb: 3.3, tools: false,
+           about: "Looks at photos you attach and answers about them, as well as chatting. Chat only."},
   gemmasmall: {label: "Gemma small", maker: "Google", detail: "Gemma 3, 1B", repo: "unsloth/gemma-3-1b-it-GGUF", quant: "Q4_K_M", size_gb: 0.8, tools: false,
                about: "Tiny and very fast. Simple chat only."},
   gemman: {label: "Gemma 3n", maker: "Google", detail: "Gemma 3n, E2B", repo: "unsloth/gemma-3n-E2B-it-GGUF", quant: "Q4_K_M", size_gb: 3.0, tools: false,
@@ -373,7 +382,7 @@ const WEBSITES = {
   gemini: {name: "Gemini", host: "gemini.google.com"},
   perplexity: {name: "Perplexity", host: "perplexity.ai"},
 };
-const DEFAULT_SETTINGS = {model: "auto", style: "normal", think: true, context: 8192, learn: true, max_steps: 12};
+const DEFAULT_SETTINGS = {model: "auto", style: "normal", think: true, context: 8192, learn: false, max_steps: 12};
 const CODE_WORDS = /\b(code|coding|program|script|python|javascript|html|css|function|bug|debug|compile|app|website|game|sql|class|error|traceback|refactor|api)\b/i;
 const ACTION_WORDS = /\b(open|make|create|write|build|run|find|search|save|install|type|fix|file|folder)\b/i;
 
@@ -468,6 +477,9 @@ const uid = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(
 const now = () => new Date().toISOString().slice(0, 19);
 
 let settings = {...DEFAULT_SETTINGS, ...readJSON("settings.json", {})};
+// Memory used to be on from the start, and carried things from old chats into new ones
+// unasked. It's now something you switch on in Settings; switch it off once for everyone.
+if (!settings.memory_opt_in) { settings.learn = false; settings.memory_opt_in = true; writeJSON("settings.json", settings); }
 function saveSettings(changes) { Object.assign(settings, changes); writeJSON("settings.json", settings); }
 function customAgents() { return readJSON("agents.json", {}); }
 function allAgents() { return {...BUILTIN_AGENTS, ...customAgents()}; }
@@ -476,7 +488,8 @@ function stats() { return readJSON("stats.json", {first_used: now().slice(0, 10)
 function bumpStats(fn) { const s = stats(); fn(s); writeJSON("stats.json", s); }
 function installed() {
   const files = JSON.parse(B.models() || "{}");
-  return Object.keys(CATALOG).filter(k => files[k]);
+  // A model that sees photos also needs its picture reader (the mmproj file).
+  return Object.keys(CATALOG).filter(k => files[k] && (!CATALOG[k].mmproj || files[k + "#mmproj"]));
 }
 
 const Store = {
@@ -688,7 +701,18 @@ function modelMessages(messages, system) {
     const m2 = {role: m.role, content: m.content || ""};
     if (m.tool_calls) m2.tool_calls = m.tool_calls;
     if (m.tool_call_id) m2.tool_call_id = m.tool_call_id;
-    if (m.role === "user" && m.attachments?.length) m2.content += m.attachments.map(a => `\n\n<attached_file name="${a.name}">\n${a.text}\n</attached_file>`).join("");
+    if (m.role === "user" && m.attachments?.length) {
+      // Leave room for the reply and the rest of the chat: very long files are cut.
+      const room = Math.floor(settings.context * 2.6 * 0.6 / Math.max(1, m.attachments.filter(a => a.text).length));
+      m2.content += m.attachments.filter(a => a.text).map(a => `\n\n<attached_file name="${a.name}">\n${a.text.length > room
+        ? a.text.slice(0, room) + `\n...(cut here: the file is ${a.text.length.toLocaleString()} characters, more than fits; say so if the answer needs the rest)` : a.text}\n</attached_file>`).join("");
+      const photos = m.attachments.filter(a => a.image);
+      if (photos.length && CATALOG[engineModel]?.vision) {
+        m2.content = [{type: "text", text: m2.content || "What's in this photo?"}, ...photos.map(a => ({type: "image_url", image_url: {url: a.image}}))];
+      } else if (photos.length) {
+        m2.content += `\n\n(${photos.length} photo${photos.length > 1 ? "s" : ""} attached, but the current model can't see photos. Tell the user to get the Vision model in Models.)`;
+      }
+    }
     return m2;
   });
   const budget = Math.floor(settings.context * 2.6) - system.length;
@@ -698,9 +722,10 @@ function modelMessages(messages, system) {
   while (start > 0 && out[start].role === "tool") start--;
   return [{role: "system", content: system}, ...out.slice(start)];
 }
-function chooseModel(agent, text, first) {
+function chooseModel(agent, text, first, hasPhoto = false) {
   const ready = installed();
   if (!ready.length) throw new Error("No AI model is downloaded yet. Open Models to get one.");
+  if (hasPhoto && ready.includes("vision") && !CATALOG[settings.model]?.vision) return ["vision", "the message has a photo"];
   let wanted = settings.model !== "auto" ? settings.model : agent.model || "auto";
   // On iPad each switch reloads a model, so Auto sticks to one.
   if (window.__deskIPad && wanted === "auto") wanted = ready.includes("quick") ? "quick" : ready[0];
@@ -732,7 +757,7 @@ async function runJob(c, body) {
   try {
     const agentId = c.agent || "assistant", agent = allAgents()[agentId] || BUILTIN_AGENTS.assistant;
     const lastUser = [...c.messages].reverse().find(m => m.role === "user");
-    const [m, reason] = chooseModel(agent, lastUser.content || "", c.messages.filter(x => x.role === "user").length === 1);
+    const [m, reason] = chooseModel(agent, lastUser.content || "", c.messages.filter(x => x.role === "user").length === 1, (lastUser.attachments || []).some(a => a.image));
     model = m;
     if (reason) emit({type: "status", chat: c.id, text: `Using ${CATALOG[m]?.label || m} because ${reason}`});
     await loadModel(m);
@@ -748,6 +773,7 @@ async function runJob(c, body) {
     emit({type: "done", chat: c.id});
     if (model) afterJob(c, model, stopped);
     onJobDone(c, stopped);
+    if (!B.isBackground()) setTimeout(() => sendNextQueued(stopped ? c.id : null), 50);
   }
 }
 
@@ -939,7 +965,7 @@ function renderMode() {
 function renderOpts() {
   renderMode();
   $("title").value = chat?.title || "New chat";
-  $("sendBtn").hidden = !!job; $("stopBtn").hidden = !job;
+  $("sendBtn").hidden = false; $("stopBtn").hidden = !job;  // send stays: messages queue while it's busy
 }
 
 // ------------------------------------------------ chats
@@ -969,7 +995,7 @@ function renderChat() {
   chat.messages.forEach((m, i) => {
     if (m.role === "user") {
       out += `<div class="msg user" onclick="this.classList.toggle('show')"><div class="bubble">${esc(m.content)}</div>
-        ${(m.attachments || []).map(a => `<div class="attached">${icon("doc")}${esc(a.name)}</div>`).join("")}
+        ${(m.attachments || []).map(a => a.image ? `<img class="sent-photo" src="${a.image}" alt="${esc(a.name)}">` : `<div class="attached">${icon("doc")}${esc(a.name)}</div>`).join("")}
         <div class="tools-row"><button class="icon-btn" onclick="event.stopPropagation(); editMessage(${i})" aria-label="Edit">${icon("edit")}</button>
         <button class="icon-btn" onclick="event.stopPropagation(); copyText(chat.messages[${i}].content)" aria-label="Copy">${icon("copy")}</button></div></div>`;
     } else if (m.role === "assistant") {
@@ -1166,21 +1192,110 @@ function keydown(e) { if (e.key === "Enter" && !e.shiftKey && window.matchMedia(
 function autosize() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 180) + "px"; }
 async function attach(files) {
   for (const f of files) {
-    if (/\.(png|jpe?g|gif|webp|heic|pdf|docx?)$/i.test(f.name)) { toast(`${f.name}: only text and code files can be read on the phone.`); continue; }
-    if (f.size > 2e6) { toast(`${f.name} is too big (over 2 MB).`); continue; }
-    const text = await f.text();
-    if (text.slice(0, 2000).includes("\u0000")) { toast(`${f.name} doesn't look like a text file.`); continue; }
-    attachments.push({name: f.name, text: text.slice(0, 200000)});
+    try {
+      if (/^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name)) attachments.push({name: f.name, image: await shrinkPhoto(f)});
+      else if (/\.pdf$/i.test(f.name)) { setStatus(`Reading ${f.name}...`); attachments.push({name: f.name, text: await pdfText(f)}); }
+      else if (/\.docx$/i.test(f.name)) attachments.push({name: f.name, text: await docxText(f)});
+      else {
+        if (f.size > 20e6) { toast(`${f.name} is too big (over 20 MB).`); continue; }
+        const text = await f.text();
+        if (text.slice(0, 2000).includes("\u0000")) { toast(`${f.name} isn't a file the AI can read. Try text, code, PDF, Word or a photo.`); continue; }
+        attachments.push({name: f.name, text: text.slice(0, 2000000)});
+      }
+    } catch (e) { toast(`Couldn't read ${f.name}: ${e.message || e}`); }
   }
-  $("file").value = ""; renderAttachments();
+  setStatus(""); $("file").value = ""; renderAttachments();
+}
+// Photos are made smaller (longest side 1024) so chats stay small and the model is quick.
+function shrinkPhoto(f) {
+  return new Promise((done, fail) => {
+    const img = new Image(), url = URL.createObjectURL(f);
+    img.onload = () => {
+      const k = Math.min(1, 1024 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      done(c.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = () => fail(new Error("not a photo this device can open"));
+    img.src = url;
+  });
+}
+// PDF text, with pdf.js (shipped next to this page, loaded only when needed).
+async function pdfText(f) {
+  if (!window.pdfjsLib) await new Promise((ok, fail) => { const s = document.createElement("script"); s.src = "pdfjs/pdf.min.js"; s.onload = ok; s.onerror = () => fail(new Error("the PDF reader is missing")); document.head.appendChild(s); });
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "pdfjs/pdf.worker.min.js";
+  const doc = await pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise, pages = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 300); i++) {
+    const t = await (await doc.getPage(i)).getTextContent();
+    pages.push(t.items.map(it => it.str + (it.hasEOL ? "\n" : " ")).join("").replace(/[ \t]+/g, " ").trim());
+  }
+  const text = pages.map((p, i) => `[Page ${i + 1}]\n${p}`).join("\n\n");
+  if (text.replace(/\[Page \d+\]/g, "").trim().length < 20) throw new Error("it has no text in it (a scanned PDF). Try a photo of the page with the Vision model.");
+  return text;
+}
+// Word (.docx) text: the document is a zip with the words in word/document.xml.
+async function docxText(f) {
+  const xml = await unzipFile(await f.arrayBuffer(), "word/document.xml");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return [...doc.getElementsByTagName("w:p")].map(p => [...p.getElementsByTagName("w:t")].map(t => t.textContent).join("")).join("\n").trim();
+}
+async function unzipFile(buf, wanted) {
+  const v = new DataView(buf), bytes = new Uint8Array(buf);
+  let e = buf.byteLength - 22;
+  while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("it isn't a proper Word file");
+  let p = v.getUint32(e + 16, true);
+  for (let i = 0; i < v.getUint16(e + 10, true); i++) {
+    const method = v.getUint16(p + 10, true), size = v.getUint32(p + 20, true), nameLen = v.getUint16(p + 28, true);
+    const extra = v.getUint16(p + 30, true), comment = v.getUint16(p + 32, true), local = v.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    if (name === wanted) {
+      const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true), data = bytes.subarray(start, start + size);
+      if (method === 0) return new TextDecoder().decode(data);
+      const out = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(out).text();
+    }
+    p += 46 + nameLen + extra + comment;
+  }
+  throw new Error("it has no text in it");
+}
+// A very long paste becomes an attachment, so the message box stays usable.
+function pasted(e) {
+  const t = e.clipboardData?.getData("text") || "";
+  if (t.length < 3000) return;
+  e.preventDefault();
+  attachments.push({name: `Pasted text (${t.length.toLocaleString()} characters)`, text: t});
+  renderAttachments();
 }
 function renderAttachments() {
-  $("attachments").innerHTML = attachments.map((a, i) => `<span class="file">${esc(a.name)}<button onclick="attachments.splice(${i}, 1); renderAttachments()" aria-label="Remove">${icon("close", "width:16px;height:16px")}</button></span>`).join("");
+  $("attachments").innerHTML = attachments.map((a, i) => `<span class="file">${a.image ? `<img src="${a.image}" alt="">` : ""}${esc(a.name)}<button onclick="attachments.splice(${i}, 1); renderAttachments()" aria-label="Remove">${icon("close", "width:16px;height:16px")}</button></span>`).join("");
+}
+// Messages sent while a reply is being written wait here and go in order.
+let queue = [];
+function renderQueue() {
+  $("queued").innerHTML = queue.map((q, i) => `<div class="q"><span>Waiting to send: ${esc(q.text || q.attachments[0]?.name || "")}</span>
+    <button onclick="queue.splice(${i}, 1); renderQueue()" aria-label="Don't send">${icon("close", "width:16px;height:16px")}</button></div>`).join("");
+}
+function sendNextQueued(stoppedChat) {
+  if (stoppedChat) queue = queue.filter(q => q.chatId !== stoppedChat);  // Stop means stop
+  const next = queue.shift(); renderQueue();
+  if (!next) return;
+  const c = Store.getChat(next.chatId);
+  if (!c) return sendNextQueued();
+  startJob(c, {text: next.text, attachments: next.attachments, style: settings.style, think: settings.think}).then(() => {
+    if (chat && chat.id === c.id) { chat = Store.getChat(c.id) || c; renderChat(); renderOpts(); startLive(); }
+  }, e => toast(e.message));
 }
 async function send(extra = {}) {
   const text = $("input").value.trim();
   if (!extra.regenerate && !text && !attachments.length) return;
   if (!chat) { chat = Store.newChat(project, currentAgent()); window.nextAgent = null; }
+  if (job && $("input").dataset.edit !== undefined && !extra.regenerate) { toast("Wait for the reply to finish, or press Stop, then send your edit."); return; }
+  if (job && !extra.regenerate) {
+    queue.push({chatId: chat.id, text, attachments});
+    $("input").value = ""; attachments = []; renderAttachments(); autosize(); renderQueue();
+    return;
+  }
   const body = {text, attachments, style: settings.style, think: settings.think, ...extra};
   if ($("input").dataset.edit !== undefined && !extra.regenerate) { body.edit_index = +$("input").dataset.edit; delete $("input").dataset.edit; }
   try { await startJob(chat, body); } catch (e) { toast(e.message); return; }
@@ -1373,7 +1488,7 @@ function getModel(k) {
   const m = CATALOG[k];
   if (m.size_gb * 1.1e9 > B.freeSpace()) { toast("There isn't enough free space on the phone for this model."); return; }
   downloads[k] = {done: 0, total: 0};
-  bridge("download", {key: k, repo: m.repo, quant: m.quant}).catch(e => { downloads[k] = {status: "error", error: e.message}; drawModels(); });
+  bridge("download", {key: k, repo: m.repo, quant: m.quant, mmproj: m.mmproj || ""}).catch(e => { downloads[k] = {status: "error", error: e.message}; drawModels(); });
   drawModels();
 }
 function delModel(k) {
@@ -1443,7 +1558,7 @@ function showMemory() {
 function showSettings() {
   sheet(`<h2>Settings</h2>
     <div class="list">
-      <label class="item"><span class="grow">Learn from my chats<small>Keeps a short memory of what you like</small></span>${toggle("seLearn", settings.learn)}</label>
+      <label class="item"><span class="grow">Learn from my chats<small>Remembers things about you and uses them in new chats</small></span>${toggle("seLearn", settings.learn)}</label>
       <div class="item"><span class="grow">Chat length<small>Longer remembers more of a chat but is slower</small></span>
         <select id="seCtx" style="width:auto">${[[4096, "Short"], [8192, "Normal"], [16384, "Long"]].map(([n, l]) => `<option value="${n}" ${settings.context === n ? "selected" : ""}>${l}</option>`).join("")}</select></div>
       <div class="item"><span class="grow">Steps per reply<small>How many searches or actions it can take</small></span>
@@ -1796,7 +1911,7 @@ function deleteConnector(id) {
   if (runId) { runScheduled(runId); return; }
   renderOpts(); renderSide();
   const chats = Store.listChats();
-  if (chats.length) openChat(chats[0].id); else renderChat();
+  renderChat();  // always open on a fresh chat; earlier chats are in the menu
   if (!installed().length) showModels();
   else {
     // Start loading the likely model now, so the first reply is quicker.

@@ -128,9 +128,12 @@ class Bridge {
         for (File root : new File[]{core.modelsDir(), ModelDownloads.dir(context)}) {
             File[] dirs = root == null ? null : root.listFiles();
             if (dirs != null) for (File d : dirs) {
-                File[] g = d.listFiles((x, n) -> n.endsWith(".gguf"));
+                // KEY for the model itself, KEY#mmproj for a photo reader beside it.
+                File[] g = d.listFiles((x, n) -> n.endsWith(".gguf") && !n.startsWith("mmproj"));
+                File[] mm = d.listFiles((x, n) -> n.endsWith(".gguf") && n.startsWith("mmproj"));
                 try {
                     if (g != null && g.length > 0 && !out.has(d.getName())) out.put(d.getName(), g[0].length());
+                    if (mm != null && mm.length > 0) out.put(d.getName() + "#mmproj", mm[0].length());
                 } catch (Exception ignored) {
                 }
             }
@@ -335,7 +338,7 @@ class Bridge {
                     case "download":
                         resolve(id, true, null);
                         try {
-                            core.download(a.getString("key"), a.getString("repo"), a.getString("quant"));
+                            core.download(a.getString("key"), a.getString("repo"), a.getString("quant"), a.optString("mmproj", ""));
                         } catch (Exception e) {
                             Log.e(TAG, "download", e);
                             core.progress(a.getString("key"), 0, 0, "error", String.valueOf(e.getMessage()));
