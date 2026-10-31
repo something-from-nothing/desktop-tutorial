@@ -361,6 +361,28 @@ class Bridge {
         post(key, chatId, title, text);
     }
 
+    // ------------------------------------------------ Android Auto
+
+    @JavascriptInterface
+    public boolean carOn() {
+        return Car.on(context);
+    }
+
+    @JavascriptInterface
+    public void carSet(boolean on) {
+        Car.setOn(context, on);
+        // Lets it notice the car's Bluetooth, to put the conversation back when you get in.
+        if (on && askPermission != null && context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            ui.post(() -> askPermission.accept(android.Manifest.permission.BLUETOOTH_CONNECT));
+    }
+
+    /** The answer to something asked in the car: back to the car, then the runner can stop. */
+    @JavascriptInterface
+    public void carDone(String text) {
+        Car.answer(context, text);
+        if (onScheduledDone != null) ui.post(onScheduledDone);
+    }
+
     /** True while the app is on screen, so a finished reply only pings when you've left it. */
     @JavascriptInterface
     public boolean onScreen() {

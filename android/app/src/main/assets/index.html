@@ -252,6 +252,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 .sheet .grab { width: 32px; height: 4px; border-radius: 2px; background: var(--line); margin: 6px auto 14px; }
 .sheet h2 { margin: 0 0 4px; font-size: 22px; font-weight: 500; letter-spacing: -.01em; }
 .sheet .sub { color: var(--dim); margin: 0 0 14px; font-size: 14px; }
+.sheet .steps-list { padding-left: 20px; display: grid; gap: 8px; }
 .sheet h3 { font-size: 13px; color: var(--dim); font-weight: 500; margin: 18px 0 6px; }
 .sheet .field { margin: 14px 0; } .sheet .field > label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 6px; }
 .sheet .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
@@ -296,6 +297,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   </div>
   <div class="foot">
     <button class="row-btn" onclick="closeDrawer(); showRemote()"><svg class="i"><use href="#i-remote"/></svg><span>Remote control</span></button>
+    <button class="row-btn" id="carRow" onclick="closeDrawer(); showCar()"><svg class="i"><use href="#i-car"/></svg><span>Android Auto</span></button>
     <button class="row-btn" onclick="closeDrawer(); openDash()"><svg class="i"><use href="#i-chart"/></svg><span>Dashboard</span></button>
     <button class="row-btn" onclick="closeDrawer(); showCodeProjects()"><svg class="i"><use href="#i-code"/></svg><span>Code</span></button>
     <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
@@ -394,6 +396,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
   <symbol id="i-remote" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2M3 9a9 9 0 0 1 0 6M21 9a9 9 0 0 0 0 6"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 17h14M5 17v2M19 17v2M4 13l2-6h12l2 6v4H4z"/><circle cx="8" cy="14.5" r=".8"/><circle cx="16" cy="14.5" r=".8"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
@@ -451,6 +454,9 @@ const STYLES = {
   normal: "", concise: "Keep answers as short as possible. Skip preamble and summaries.",
   explanatory: "Explain your reasoning and teach the ideas behind the answer, with examples.",
   formal: "Write in a clear, professional, formal tone.", friendly: "Write in a warm, relaxed, conversational tone.",
+  // Only used for questions asked in the car (Android Auto), never offered in the style picker.
+  car: "The user is driving and this answer will be read out loud by the car. Answer in one to three short spoken sentences. "
+     + "No lists, headings, tables, markdown, links, emoji or code. Never ask them to look at or tap the screen. If something needs the screen, say they can see it in Desk Agent later.",
 };
 // Built in agents. Tool groups: web, artifacts, delegate.
 const BUILTIN_AGENTS = {
@@ -510,6 +516,8 @@ const B = window.Android || (() => {
     keepAlive: () => {}, bringToFront: () => {}, openWebsite: k => { window.__opened = k; }, exactAlarmsAllowed: () => true, openAlarmSettings: () => {}, notificationsAllowed: () => true,
     askForNotifications: () => {}, schedulesChanged: () => { window.__schedulesChanged = (window.__schedulesChanged || 0) + 1; },
     scheduledDone: (chatId, title, text) => { window.__scheduledDone = {chatId, title, text}; },
+    carOn: () => localStorage.getItem("da:_car") === "on", carSet: on => localStorage.setItem("da:_car", on ? "on" : "off"),
+    carDone: text => { window.__carDone = text; },
     onScreen: () => !document.hidden,
     engineRunning: () => true, engineLog: () => "", allowed: () => false,
     // Desk OS has no notification shade: show it on screen, and as a system notification if allowed.
@@ -2041,7 +2049,7 @@ function showOptions() {
   sheet(`<h2>Options</h2>
     <h3>Agent</h3>${rows(Object.entries(agents).map(([k, a]) => [k, a.name, a.blurb || firstLine(a.instructions)]), agent, "pickAgent")}
     <h3>Model</h3>${rows([["auto", "Auto", "Picks the right model for each message"], ...ready.map(k => [k, CATALOG[k].label, CATALOG[k].detail])], ready.includes(settings.model) ? settings.model : "auto", "pickModel")}
-    <h3>Style</h3>${rows(Object.keys(STYLES).map(s => [s, s[0].toUpperCase() + s.slice(1), ""]), settings.style, "pickStyle")}
+    <h3>Style</h3>${rows(Object.keys(STYLES).filter(s => s !== "car").map(s => [s, s[0].toUpperCase() + s.slice(1), ""]), settings.style, "pickStyle")}
     <h3>Also on the web</h3><div class="list">${Object.entries(WEBSITES).map(([k, w]) => `<button class="item" onclick="B.openWebsite('${k}')">
       <span class="grow">${w.name}<small>Opens ${w.host} with your own free account</small></span>${icon("chev").replace('class="i"', 'class="i chev" style="color:var(--faint)"')}</button>`).join("")}</div>
     <p class="sub" style="margin:8px 4px 0">These open the company's own website. Your agents, memory and schedules only work with the models on this phone.</p>
@@ -2336,6 +2344,41 @@ function runScheduleNow(id) {
   $("input").value = s.prompt; send();
 }
 
+// Android Auto: something asked by voice in the car, answered in the hidden copy of this page.
+// It all goes in one "In the car" chat, so you can read it back later and follow ups make sense.
+async function runCar(text) {
+  let c = settings.car_chat && Store.getChat(settings.car_chat);
+  if (!c) { c = Store.newChat(null, "assistant"); c.title = "In the car"; Store.saveChat(c); saveSettings({car_chat: c.id}); }
+  chat = c; window.__carRun = true;
+  try { await startJob(c, {text, style: "car", think: false}); }
+  catch (e) { window.__carRun = false; B.carDone(e.message); }
+}
+// What the car reads out: plain sentences, no markdown or links.
+function spoken(t) {
+  return t.replace(/<think>[\s\S]*?<\/think>/g, "").replace(/```[\s\S]*?```/g, " (there's code in the app) ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/https?:\/\/\S+/g, "").replace(/^\s*[-*\d.]+\s+/gm, "")
+    .replace(/[#*_`>|~]/g, "").split("\n").map(l => l.trim()).filter(Boolean)
+    .map(l => /[.!?:;,)]$/.test(l) ? l : l + ".").join(" ").replace(/\s{2,}/g, " ").trim();
+}
+function showCar() {
+  const on = B.carOn();
+  sheet(`<h2>Android Auto</h2>
+    <p class="sub">Talk to Desk Agent in the car. It shows up like a message conversation: the car reads its answers out and you reply by voice. Google doesn't allow AI chat apps their own screen in the car, so this is how it works.</p>
+    <div class="list"><label class="item"><span class="grow">Use Desk Agent in the car<small>${on ? "On. Look for Desk Agent in the car's messages." : "Off"}</small></span>${toggle("carOn", on)}</label></div>
+    <h3 style="margin-top:18px">Setting it up once</h3>
+    <ol class="sub steps-list">
+      <li>On the phone, open the Android Auto settings, scroll down and tap Version about ten times, then say OK to developer settings.</li>
+      <li>From the three dots menu choose Developer settings and switch on Unknown sources. Android Auto hides apps that didn't come from the Play Store until you do.</li>
+      <li>Back in Android Auto settings, make sure message notifications are on.</li>
+      <li>Allow "Nearby devices" when Desk Agent asks, so it can tell when you get in the car.</li>
+    </ol>
+    <h3 style="margin-top:18px">In the car</h3>
+    <p class="sub">Open the Desk Agent message and choose Reply, then say your question. The answer is read out in a few short sentences. Everything is kept in the chat called "In the car".</p>
+    <div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`, bg => {
+    bg.querySelector("#carOn").onchange = e => { B.carSet(e.target.checked); showCar(); if (e.target.checked) toast("Desk Agent is waiting in your notifications"); };
+  });
+}
+
 // Runs one scheduled chat in the hidden copy of this page that Android starts on time.
 async function runScheduled(id) {
   const list = schedules(), s = list.find(x => x.id === id);
@@ -2360,6 +2403,11 @@ let lastError = "";
 function plainText(t) { return t.replace(/[#*_`>|]/g, "").replace(/\n{2,}/g, "\n").trim(); }
 function onJobDone(c, stopped) {
   if (phoneSession) { phoneSession = false; B.keepAlive(false); B.bringToFront(); }
+  if (window.__carRun) {
+    window.__carRun = false;
+    const last = [...c.messages].reverse().find(m => m.role === "assistant" && m.content);
+    return B.carDone(spoken(last ? last.content : lastError || "Sorry, I couldn't answer that.").slice(0, 900));
+  }
   const s = window.__scheduledRun;
   if (!s) {
     // You asked, then left the app: ping when the answer is ready.
@@ -2522,7 +2570,10 @@ function deleteConnector(id) {
 (function start() {
   const runId = new URLSearchParams(location.search).get("run");
   if (runId) { runScheduled(runId); return; }
+  const carText = new URLSearchParams(location.search).get("car");
+  if (carText !== null) { runCar(carText); return; }
   renderOpts(); renderSide();
+  if (!window.Android && !new URLSearchParams(location.search).has("car-test")) $("carRow").hidden = true;  // only the phone has Android Auto
   const chats = Store.listChats();
   renderChat();  // always open on a fresh chat; earlier chats are in the menu
   if (!installed().length) showModels();

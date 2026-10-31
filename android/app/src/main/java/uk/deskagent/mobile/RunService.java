@@ -5,6 +5,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -24,6 +25,7 @@ public class RunService extends Service {
     static final String ACTION_KEEP_ALIVE = "keep";
     static final String ACTION_STOP = "stop";
     static final String ACTION_STOP_JOB = "stopjob";
+    static final String ACTION_CAR = "car";
     private static final long RUN_LIMIT_MS = 20 * 60_000;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -44,7 +46,13 @@ public class RunService extends Service {
         if (ACTION_RUN.equals(action)) {
             String id = intent.getStringExtra("schedule");
             showNotification("Running a scheduled chat");
-            if (id != null) queue.add(id);
+            if (id != null) queue.add("run=" + Uri.encode(id));
+            if (hidden == null) runNext();
+        } else if (ACTION_CAR.equals(action)) {
+            // Asked by voice in the car: answer in the background, the answer goes back to the car.
+            showNotification("Answering in the car");
+            String text = intent.getStringExtra("text");
+            if (text != null) queue.add("car=" + Uri.encode(text));
             if (hidden == null) runNext();
         } else if (ACTION_KEEP_ALIVE.equals(action)) {
             keepAlive = true;
@@ -84,8 +92,8 @@ public class RunService extends Service {
     }
 
     private void runNext() {
-        String id = queue.poll();
-        if (id == null) {
+        String query = queue.poll();
+        if (query == null) {
             stopIfIdle();
             return;
         }
@@ -96,7 +104,7 @@ public class RunService extends Service {
         hiddenBridge = new Bridge(this, hidden, true, null);
         hiddenBridge.onScheduledDone = this::finishRun;
         hidden.addJavascriptInterface(hiddenBridge, "Android");
-        hidden.loadUrl("file:///android_asset/index.html?run=" + id);
+        hidden.loadUrl("file:///android_asset/index.html?" + query);
         ui.postDelayed(giveUp, RUN_LIMIT_MS);
     }
 

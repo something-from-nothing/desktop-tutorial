@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto: Desk Agent shows up as a messaging conversation, read out and answered by voice. -->
+<automotiveApp>
+    <uses name="notification" />
+</automotiveApp>

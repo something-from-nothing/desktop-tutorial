@@ -13,6 +13,8 @@
     <!-- Only when you ask the AI about your calendar or contacts: Android asks you first. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Android Auto: notices the car's Bluetooth connecting, to have the conversation ready. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- No location, camera, microphone or storage. -->
 
     <!-- Lets "open an app" see which apps can be opened, without listing every package. -->
@@ -44,6 +46,9 @@
             </intent-filter>
         </activity>
 
+        <!-- Tells Android Auto this app has messaging style notifications it can read out. -->
+        <meta-data android:name="com.google.android.gms.car.application" android:resource="@xml/automotive_app_desc" />
+
         <service
             android:name=".RunService"
             android:exported="false"
@@ -61,8 +66,11 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
             </intent-filter>
         </receiver>
+        <!-- Android Auto: voice replies to the Desk Agent conversation. -->
+        <receiver android:name=".Car$Reply" android:exported="false" />
 
         <service
             android:name=".PhoneControl"
