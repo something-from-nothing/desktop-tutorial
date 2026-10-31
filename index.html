@@ -1,0 +1,1935 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Desk Agent</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Desk Agent">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="ipad.js?v=33ad924"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js?v=33ad924");
+// Opened from a plain link: add the settings the Home Screen icon opens with.
+if (!location.search.includes("builtin=")) history.replaceState(null, "", "index.html?engine=1&builtin=quick");</script>
+
+<!--
+  Desk Agent Mobile: your own AI on your phone. Everything runs on the phone through
+  the llama.cpp engine the app starts in the background. This page is the whole app:
+  chats, projects, agents, the full screen view for finished work, models and memory.
+  The Android side (MainActivity.java) only runs the engine, downloads models, stores
+  files and fetches web pages for it, through window.Android.
+
+  Look: a quiet, native feeling app. Warm off white with one deep green accent, plain
+  line icons, replies as plain text, and every option tucked away until asked for.
+-->
+<style>
+:root {
+  --bg: #fafaf8; --surface: #ffffff; --raised: #f2f2ef; --text: #1d1d1f; --dim: #6e6e73; --faint: #a1a1a6;
+  --line: #e7e7e3; --accent: #1f5f4a; --accent-text: #ffffff; --accent-soft: #e6efeb; --danger: #b3261e;
+  --code: #f4f4f1; --radius: 16px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121212; --surface: #1c1c1e; --raised: #26262a; --text: #ececee; --dim: #9a9aa0; --faint: #6c6c72;
+          --line: #2e2e32; --accent: #8fd1b4; --accent-text: #0d2a20; --accent-soft: #1d2f28; --danger: #f2b8b5; --code: #1f1f22; color-scheme: dark; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; font: 16px/1.6 Roboto, system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); display: flex; overflow: hidden;
+       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; border-radius: 999px; padding: 8px 16px; min-height: 40px; }
+button.filled { background: var(--accent); color: var(--accent-text); font-weight: 500; }
+button.tonal { background: var(--raised); }
+button.text { color: var(--accent); font-weight: 500; }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .45; }
+.icon-btn { width: 44px; height: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--dim); flex-shrink: 0; }
+.icon-btn:active, .row-btn:active { background: var(--raised); }
+svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--raised); border: 1px solid transparent; border-radius: 12px; padding: 11px 13px; width: 100%; outline: none; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+textarea { resize: vertical; }
+a { color: var(--accent); text-decoration: none; }
+
+/* ---- navigation drawer ---- */
+#side { width: 300px; max-width: 84vw; background: var(--surface); display: flex; flex-direction: column; flex-shrink: 0; z-index: 30; border-right: 1px solid var(--line); }
+@media (max-width: 899px) {
+  #side { position: fixed; top: 0; bottom: 0; left: 0; transform: translateX(-102%); transition: transform .24s cubic-bezier(.2,.8,.2,1);
+          padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); border-radius: 0 24px 24px 0; border: 0; }
+  body.drawer #side { transform: none; box-shadow: 0 0 48px #0003; }
+  body.drawer #shade { opacity: 1; pointer-events: auto; }
+}
+@media (min-width: 900px) { #menuBtn { visibility: hidden; } }
+#shade { position: fixed; inset: 0; background: #0005; z-index: 25; opacity: 0; pointer-events: none; transition: opacity .24s; }
+#side .head { padding: 20px 20px 8px; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.row-btn { display: flex; align-items: center; gap: 14px; width: calc(100% - 16px); margin: 0 8px; padding: 0 14px; min-height: 48px; border-radius: 999px; text-align: left; font-size: 15px; }
+.row-btn.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.row-btn span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-btn .end { flex: none; color: var(--faint); display: none; }
+.row-btn:hover .end, .row-btn.active .end { display: inline-flex; }
+#side .search { margin: 4px 16px 8px; width: auto; }
+#side .label { padding: 16px 22px 6px; font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; align-items: center; }
+#side .label button { padding: 0 6px; min-height: 28px; color: var(--accent); font-size: 13px; font-weight: 500; }
+#side .scroll { flex: 1; overflow-y: auto; padding-bottom: 8px; }
+#side .empty-note { padding: 4px 22px; color: var(--faint); font-size: 14px; }
+#side .foot { border-top: 1px solid var(--line); padding: 6px 0 4px; }
+#side .stats { font-size: 12px; color: var(--faint); padding: 6px 22px 10px; }
+
+/* ---- main screen ---- */
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; color: var(--text);
+        background: radial-gradient(120% 60% at 100% 0%, #2563eb99, transparent 60%),
+                    radial-gradient(90% 50% at 0% 100%, #ff7a1a73, transparent 65%),
+                    linear-gradient(165deg, #3b0a78 0%, #7e1d8f 50%, #c2185b 100%);
+        /* Everything sitting on the colour is white; sheets, menus and the drawer keep the plain colours. */
+        --text: #ffffff; --dim: #ffffffd1; --faint: #ffffff9e; --raised: #ffffff2e; --surface: #ffffff26; --line: #ffffff47;
+        --accent: #ffffff; --accent-text: #4a0f6b; --accent-soft: #ffffff33; --danger: #ffd2cc; --code: #00000033; color-scheme: dark; }
+#composer .box { -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+#main ::placeholder { color: var(--faint); }
+#top { display: flex; align-items: center; gap: 2px; padding: 4px 6px; min-height: 56px; }
+#title { font-size: 17px; font-weight: 500; background: transparent; border: 0; padding: 8px 6px; flex: 1; min-width: 0; text-overflow: ellipsis; border-radius: 10px; }
+#title:focus { background: var(--raised); }
+#status { font-size: 13px; color: var(--dim); padding: 0 20px; min-height: 0; transition: min-height .2s; }
+#status:not(:empty) { min-height: 22px; }
+
+#chat { flex: 1; overflow-y: auto; padding: 4px 0 24px; -webkit-overflow-scrolling: touch; }
+.msg { max-width: 760px; margin: 0 auto; padding: 0 20px; }
+.msg + .msg { margin-top: 20px; }
+.msg.user { display: flex; flex-direction: column; align-items: flex-end; }
+.bubble { background: var(--raised); border-radius: 20px 20px 6px 20px; padding: 10px 16px; max-width: 85%; white-space: pre-wrap; word-wrap: break-word; }
+.attached { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); margin-top: 4px; }
+.attached svg.i { width: 16px; height: 16px; }
+.tools-row { display: flex; gap: 2px; margin-top: 2px; color: var(--faint); }
+.tools-row .icon-btn { width: 36px; height: 36px; min-height: 36px; color: var(--faint); }
+.tools-row svg.i { width: 18px; height: 18px; }
+.msg.user .tools-row { visibility: hidden; }
+.msg.user.show .tools-row { visibility: visible; }
+.md { word-wrap: break-word; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p { margin: .6em 0; } .md h1, .md h2, .md h3 { margin: 1em 0 .3em; line-height: 1.3; font-weight: 600; } .md h1 { font-size: 1.25em; } .md h2 { font-size: 1.12em; } .md h3 { font-size: 1em; }
+.md ul, .md ol { padding-left: 1.3em; margin: .5em 0; } .md li { margin: .2em 0; }
+.md blockquote { border-left: 3px solid var(--line); margin: .6em 0; padding-left: 14px; color: var(--dim); }
+.md table { border-collapse: collapse; margin: .8em 0; display: block; overflow-x: auto; font-size: 15px; }
+.md th, .md td { border-bottom: 1px solid var(--line); padding: 6px 14px 6px 0; text-align: left; } .md th { font-weight: 600; }
+.md code { background: var(--code); padding: 2px 5px; border-radius: 6px; font-family: "Roboto Mono", ui-monospace, monospace; font-size: .88em; }
+.codeblock { background: var(--code); border-radius: 14px; margin: .8em 0; overflow: hidden; }
+.codeblock .bar { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--dim); padding: 2px 4px 0 14px; }
+.codeblock .bar button { font-size: 13px; color: var(--dim); min-height: 34px; padding: 4px 10px; }
+.codeblock pre { margin: 0; padding: 4px 14px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5; } .codeblock code { background: none; padding: 0; }
+
+/* quiet one line steps: tool use, reasoning, helper agents */
+.picture { margin: 10px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; max-width: 520px; }
+.picture img { display: block; width: 100%; height: auto; background: var(--raised); }
+.picture figcaption { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; font-size: 13px; color: var(--dim); }
+.picture figcaption span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.poll { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px; margin: 10px 0; }
+.poll-q { font-weight: 500; margin-bottom: 10px; }
+.poll-opts { display: flex; flex-direction: column; gap: 8px; }
+.poll-opt { text-align: left; background: var(--raised); border-radius: 14px; padding: 10px 14px; min-height: 44px; }
+.poll-opt.on { background: var(--accent); color: var(--accent-text); }
+.poll-opt:disabled { opacity: .55; cursor: default; }
+.poll-send { margin-top: 10px; }
+.poll small { display: block; color: var(--faint); font-size: 12px; margin-top: 8px; }
+details.step { margin: 6px 0; font-size: 14px; color: var(--dim); }
+details.step > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 0; min-height: 32px; }
+details.step > summary::-webkit-details-marker { display: none; }
+details.step > summary svg.i { width: 17px; height: 17px; }
+details.step > summary .chev { margin-left: auto; transition: transform .2s; color: var(--faint); }
+details.step[open] > summary .chev { transform: rotate(90deg); }
+details.step > summary .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+details.step .detail { margin: 2px 0 8px 25px; padding-left: 12px; border-left: 2px solid var(--line); white-space: pre-wrap; font-size: 13px; max-height: 260px; overflow: auto; }
+details.step .detail.md { white-space: normal; font-size: 14px; color: var(--text); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; animation: pulse 1.2s ease-in-out infinite; flex-shrink: 0; margin: 0 5px; }
+@keyframes pulse { 50% { opacity: .25; } }
+.cursor::after { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: 4px; animation: pulse 1.2s infinite; vertical-align: middle; }
+
+.artifact { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin: 10px 0; cursor: pointer; width: 100%; text-align: left; min-height: 64px; }
+.artifact .badge { width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.artifact b { display: block; font-weight: 500; } .artifact small { color: var(--dim); font-size: 13px; }
+.artifact .chev { margin-left: auto; color: var(--faint); }
+.note { color: var(--danger); font-size: 14px; }
+
+#empty { max-width: 420px; margin: 18vh auto 0; text-align: center; padding: 0 28px; color: var(--dim); }
+#empty .mark { width: 52px; height: 52px; border-radius: 16px; background: var(--accent-soft); color: var(--accent); display: inline-flex; align-items: center; justify-content: center; }
+#empty .mark svg.i { width: 26px; height: 26px; }
+#empty h1 { font-size: 22px; font-weight: 500; color: var(--text); margin: 18px 0 6px; letter-spacing: -.01em; }
+#empty p { margin: 0 0 20px; font-size: 15px; }
+#empty .upgrade { margin-top: 28px; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; display: grid; gap: 6px; }
+#empty .upgrade b { color: var(--text); font-weight: 500; }
+#empty .upgrade span { font-size: 14px; }
+#empty .upgrade button { justify-self: start; margin-top: 4px; }
+
+/* ---- message bar ---- */
+#composer { width: 100%; max-width: 800px; margin: 0 auto; padding: 0 12px 12px; }
+#mode { display: block; margin: 0 auto 6px; font-size: 13px; color: var(--dim); min-height: 30px; padding: 4px 12px; }
+#mode:empty { display: none; }
+#attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px 6px; }
+#attachments .file { display: inline-flex; align-items: center; gap: 6px; background: var(--raised); border-radius: 10px; padding: 4px 4px 4px 10px; font-size: 13px; }
+#attachments .file img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; margin-left: -6px; }
+.sent-photo { display: block; max-width: min(260px, 70%); border-radius: 14px; margin-top: 6px; }
+#queued { display: flex; flex-direction: column; gap: 4px; padding: 0 4px 6px; }
+#queued .q { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); background: var(--raised); border-radius: 10px; padding: 4px 4px 4px 10px; }
+#queued .q span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#queued .q button { min-height: 28px; padding: 0 6px; color: var(--dim); }
+#attachments .file button { min-height: 28px; padding: 0 6px; color: var(--dim); }
+#composer .box { background: var(--surface); border: 1px solid var(--line); border-radius: 28px; padding: 4px; display: flex; align-items: flex-end; gap: 2px; }
+#composer textarea { flex: 1; border: 0; background: transparent; resize: none; min-height: 44px; max-height: 180px; padding: 11px 4px; border-radius: 0; }
+#composer textarea:focus { border: 0; }
+#sendBtn, #stopBtn { width: 44px; height: 44px; min-height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--accent-text); flex-shrink: 0; }
+#sendBtn:disabled { background: var(--raised); color: var(--faint); opacity: 1; }
+#stopBtn { background: var(--text); color: var(--accent-text); }
+
+/* ---- full screen view for finished work ---- */
+#panel { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+#panel.open { display: flex; }
+#panel .bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px; min-height: 56px; }
+#panel .bar b { flex: 1; font-weight: 500; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+.seg { display: inline-flex; background: var(--raised); border-radius: 999px; padding: 3px; margin: 0 6px; }
+.seg button { min-height: 32px; padding: 4px 14px; font-size: 14px; color: var(--dim); }
+.seg button.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px #0002; }
+#panel .body { flex: 1; overflow: auto; border-top: 1px solid var(--line); }
+#panel iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+#panel .md { padding: 18px 20px; }
+
+/* ---- bottom sheets ---- */
+.sheet-bg { position: fixed; inset: 0; background: #0005; display: flex; align-items: flex-end; justify-content: center; z-index: 50; animation: fade .18s; }
+.sheet { background: var(--surface); border-radius: 28px 28px 0 0; width: min(640px, 100vw); max-height: 88vh; overflow: auto; padding: 8px 20px calc(16px + env(safe-area-inset-bottom)); animation: rise .22s cubic-bezier(.2,.8,.2,1); }
+@media (min-width: 700px) { .sheet-bg { align-items: center; } .sheet { border-radius: 28px; } }
+@keyframes fade { from { opacity: 0; } } @keyframes rise { from { transform: translateY(40px); opacity: .6; } }
+.sheet .grab { width: 32px; height: 4px; border-radius: 2px; background: var(--line); margin: 6px auto 14px; }
+.sheet h2 { margin: 0 0 4px; font-size: 22px; font-weight: 500; letter-spacing: -.01em; }
+.sheet .sub { color: var(--dim); margin: 0 0 14px; font-size: 14px; }
+.sheet h3 { font-size: 13px; color: var(--dim); font-weight: 500; margin: 18px 0 6px; }
+.sheet .field { margin: 14px 0; } .sheet .field > label { display: block; font-size: 13px; color: var(--dim); margin-bottom: 6px; }
+.sheet .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+.sheet .buttons .left { margin-right: auto; }
+.list { border-radius: 16px; background: var(--raised); overflow: hidden; }
+.list .item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; min-height: 56px; width: 100%; text-align: left; border-radius: 0; }
+.list .item + .item { border-top: 1px solid var(--line); }
+.list .item .grow { flex: 1; min-width: 0; }
+.list .item .grow small { display: block; color: var(--dim); font-size: 13px; line-height: 1.4; margin-top: 1px; }
+.list .item .tick { color: var(--accent); visibility: hidden; }
+.list .item.on .tick { visibility: visible; }
+.list .item .meta { font-size: 13px; color: var(--dim); white-space: nowrap; }
+.list .item .actions { display: flex; gap: 4px; flex-shrink: 0; }
+.list .item .actions button { min-height: 34px; padding: 4px 12px; font-size: 14px; }
+.list .maker { padding: 14px 16px 4px; font-size: 13px; color: var(--dim); font-weight: 500; }
+.list .maker + .item { border-top: 0; }
+.ready { color: var(--accent); font-size: 13px; font-weight: 500; }
+.progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 8px; } .progress div { height: 100%; background: var(--accent); transition: width .4s; }
+.switch { position: relative; width: 52px; height: 32px; flex-shrink: 0; }
+.switch input { opacity: 0; position: absolute; inset: 0; margin: 0; cursor: pointer; z-index: 1; }
+.switch span { position: absolute; inset: 0; border-radius: 16px; background: var(--line); transition: background .2s; }
+.switch span::after { content: ""; position: absolute; left: 4px; top: 4px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 3px #0003; transition: transform .2s; }
+.switch input:checked + span { background: var(--accent); } .switch input:checked + span::after { transform: translateX(20px); }
+.files { display: flex; flex-wrap: wrap; gap: 6px; }
+.files .file { display: inline-flex; align-items: center; gap: 4px; background: var(--raised); border-radius: 10px; padding: 4px 4px 4px 10px; font-size: 13px; }
+.files .file button { min-height: 28px; padding: 0 6px; color: var(--dim); }
+#toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 12px; font-size: 14px; z-index: 60; max-width: 88vw; opacity: 0; pointer-events: none; transition: opacity .2s; }
+#toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="shade" onclick="closeDrawer()"></div>
+<nav id="side">
+  <div class="head">Desk Agent</div>
+  <button class="row-btn" onclick="newChat()"><svg class="i"><use href="#i-compose"/></svg><span>New chat</span></button>
+  <input class="search" id="search" placeholder="Search" oninput="renderSide()">
+  <div class="scroll">
+    <div class="label">Projects <button onclick="editProject()" aria-label="New project">New</button></div>
+    <div id="projects"></div>
+    <div class="label"><span id="chatsLabel">Recent</span></div>
+    <div id="chats"></div>
+  </div>
+  <div class="foot">
+    <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showModels()"><svg class="i"><use href="#i-chip"/></svg><span>Models</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showSchedules()"><svg class="i"><use href="#i-clock"/></svg><span>Scheduled</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showConnectors()"><svg class="i"><use href="#i-plug"/></svg><span>Connectors</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showMemory()"><svg class="i"><use href="#i-book"/></svg><span>Memory</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showSettings()"><svg class="i"><use href="#i-gear"/></svg><span>Settings</span></button>
+    <div class="stats" id="stats"></div>
+  </div>
+</nav>
+
+<main id="main">
+  <div id="top">
+    <button class="icon-btn" id="menuBtn" onclick="openDrawer()" aria-label="Menu"><svg class="i"><use href="#i-menu"/></svg></button>
+    <input id="title" value="New chat" onchange="renameChat(this.value)" aria-label="Chat title">
+    <button class="icon-btn" onclick="newChat()" aria-label="New chat"><svg class="i"><use href="#i-compose"/></svg></button>
+  </div>
+  <div id="status"></div>
+  <div id="chat"></div>
+  <div id="composer">
+    <button id="mode" onclick="showOptions()"></button>
+    <div id="queued"></div>
+      <div id="attachments"></div>
+    <div class="box">
+      <button class="icon-btn" onclick="document.getElementById('file').click()" aria-label="Attach a file"><svg class="i"><use href="#i-clip"/></svg></button>
+      <input type="file" id="file" multiple hidden onchange="attach(this.files)" accept="image/*,.pdf,.docx,.txt,.md,.csv,.json,.html,.css,.js,.ts,.py,.java,.kt,.c,.cpp,.h,.cs,.go,.rs,.rb,.php,.swift,.sh,.xml,.yml,.yaml,.sql,text/*">
+      <textarea id="input" rows="1" placeholder="Message" onkeydown="keydown(event)" oninput="autosize()" onpaste="pasted(event)"></textarea>
+      <button class="icon-btn" onclick="showOptions()" aria-label="Options"><svg class="i"><use href="#i-tune"/></svg></button>
+      <button id="stopBtn" onclick="stopJob()" hidden aria-label="Stop"><svg class="i" style="width:16px;height:16px"><use href="#i-stop"/></svg></button>
+      <button id="sendBtn" onclick="send()" aria-label="Send"><svg class="i"><use href="#i-send"/></svg></button>
+    </div>
+  </div>
+</main>
+
+<aside id="panel">
+  <div class="bar">
+    <button class="icon-btn" onclick="closePanel()" aria-label="Close"><svg class="i"><use href="#i-close"/></svg></button>
+    <b id="artTitle"></b>
+    <span class="seg"><button id="tabPreview" onclick="artTab('preview')">Preview</button><button id="tabCode" onclick="artTab('code')">Code</button></span>
+    <button class="icon-btn" onclick="copyText(currentArt.content)" aria-label="Copy"><svg class="i"><use href="#i-copy"/></svg></button>
+    <button class="tonal" id="saveVideoBtn" onclick="saveVideo()" hidden>Save as video</button>
+    <button class="icon-btn" onclick="saveArt()" aria-label="Save to Downloads"><svg class="i"><use href="#i-save"/></svg></button>
+  </div>
+  <div class="body" id="artBody"></div>
+</aside>
+<div id="toast"></div>
+
+<!-- Line icons, drawn once and reused. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+  <symbol id="i-compose" viewBox="0 0 24 24"><path d="M12 20h8"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7-7l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></symbol>
+  <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
+  <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M10 2v4M14 2v4M10 18v4M14 18v4M2 10h4M2 14h4M18 10h4M18 14h4"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21a2 2 0 0 1 2-2h13v2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-10 0zM12 16v5"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></symbol>
+</svg>
+<script>
+"use strict";
+// ================================================================ settings and models
+
+// Free models that fit on a phone, from well known makers. Grok (xAI) and DeepSeek are
+// left out by choice. tools: false means the model only chats: it can't search, build
+// pages or use the phone, because its chat format has no way to call tools.
+const CATALOG = {
+  general: {label: "General", maker: "Alibaba", detail: "Qwen 3, 4B", repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF", quant: "Q4_K_M", size_gb: 2.5,
+            about: "The best all rounder for a phone, and the best at using tools. Start with this one."},
+  quick: {label: "Quick", maker: "Alibaba", detail: "Qwen 2.5, 1.5B", repo: "bartowski/Qwen2.5-1.5B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 1.0,
+          about: "Fastest and lightest on the battery. Fine for chat and simple jobs."},
+  tiny: {label: "Tiny", maker: "Alibaba", detail: "Qwen 2.5, 0.5B", repo: "bartowski/Qwen2.5-0.5B-Instruct-GGUF", quant: "Q4_0", size_gb: 0.35,
+         about: "The smallest. Very fast, but keep the jobs simple."},
+  qwen3small: {label: "Qwen 3 small", maker: "Alibaba", detail: "Qwen 3, 1.7B", repo: "unsloth/Qwen3-1.7B-GGUF", quant: "Q4_K_M", size_gb: 1.1,
+               about: "Small but thinks before it answers. Good for quick questions that need a bit of reasoning."},
+  coder: {label: "Coder", maker: "Alibaba", detail: "Qwen 2.5 Coder, 7B", repo: "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 4.7,
+          about: "Best at writing programs. Slower and uses more battery."},
+  gemma: {label: "Gemma", maker: "Google", detail: "Gemma 3, 4B", repo: "unsloth/gemma-3-4b-it-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
+          about: "A smaller relative of Gemini. Good at writing and other languages. Chat only."},
+  vision: {label: "Vision", maker: "Google", detail: "Gemma 3, 4B, sees photos", repo: "ggml-org/gemma-3-4b-it-GGUF", quant: "Q4_K_M", mmproj: "mmproj", vision: true, size_gb: 3.3, tools: false,
+           about: "Looks at photos you attach and answers about them, as well as chatting. Chat only."},
+  gemmasmall: {label: "Gemma small", maker: "Google", detail: "Gemma 3, 1B", repo: "unsloth/gemma-3-1b-it-GGUF", quant: "Q4_K_M", size_gb: 0.8, tools: false,
+               about: "Tiny and very fast. Simple chat only."},
+  gemman: {label: "Gemma 3n", maker: "Google", detail: "Gemma 3n, E2B", repo: "unsloth/gemma-3n-E2B-it-GGUF", quant: "Q4_K_M", size_gb: 3.0, tools: false,
+           about: "Google's model built for phones. Strong for its speed. Chat only."},
+  llama: {label: "Llama", maker: "Meta", detail: "Llama 3.2, 3B", repo: "bartowski/Llama-3.2-3B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 2.0,
+          about: "Quick and friendly for everyday chat."},
+  llamasmall: {label: "Llama small", maker: "Meta", detail: "Llama 3.2, 1B", repo: "bartowski/Llama-3.2-1B-Instruct-GGUF", quant: "Q4_K_M", size_gb: 0.8,
+               about: "Tiny and very fast. Simple chat and short answers."},
+  phi: {label: "Phi", maker: "Microsoft", detail: "Phi 4 mini, 3.8B", repo: "bartowski/microsoft_Phi-4-mini-instruct-GGUF", quant: "Q4_K_M", size_gb: 2.5, tools: false,
+        about: "Good at maths and step by step reasoning. Chat only."},
+  mistral: {label: "Mistral", maker: "Mistral AI", detail: "Mistral 7B v0.3", repo: "bartowski/Mistral-7B-Instruct-v0.3-GGUF", quant: "Q4_K_M", size_gb: 4.4,
+            about: "From the French company Mistral. Good general writing. Slower, wants plenty of memory."},
+  granite: {label: "Granite", maker: "IBM", detail: "Granite 3.3, 2B", repo: "ibm-granite/granite-3.3-2b-instruct-GGUF", quant: "Q4_K_M", size_gb: 1.5,
+            about: "Made for business writing and summaries. Careful and plain."},
+  smol: {label: "SmolLM", maker: "Hugging Face", detail: "SmolLM3, 3B", repo: "unsloth/SmolLM3-3B-GGUF", quant: "Q4_K_M", size_gb: 1.9, tools: false,
+         about: "Fully open, made by Hugging Face. Good all round chat for its size. Chat only."},
+};
+const STYLES = {
+  normal: "", concise: "Keep answers as short as possible. Skip preamble and summaries.",
+  explanatory: "Explain your reasoning and teach the ideas behind the answer, with examples.",
+  formal: "Write in a clear, professional, formal tone.", friendly: "Write in a warm, relaxed, conversational tone.",
+};
+// Built in agents. Tool groups: web, artifacts, delegate.
+const BUILTIN_AGENTS = {
+  assistant: {name: "Assistant", blurb: "Everyday help. Can ask the others", model: "auto", tools: ["web", "info", "mydata", "artifacts", "delegate"],
+    instructions: "You are a capable general assistant. Handle the job yourself, or hand a self contained part to a specialist agent with ask_agent when that will do it better."},
+  coder: {name: "Coder", blurb: "Writes code and small apps", model: "coder", tools: ["artifacts"],
+    instructions: "You are a careful programmer. Plan briefly and write clean, complete, working code with short comments. For a web page or small app, show it with create_artifact so the user can try it."},
+  researcher: {name: "Researcher", blurb: "Searches the web and gives sources", model: "general", tools: ["web", "info"],
+    instructions: "You research questions. Search the web, read the most relevant pages, compare sources, and give a clear answer with the links you used. Say when sources disagree or you are unsure."},
+  writer: {name: "Writer", blurb: "Emails, posts, letters and stories", model: "general", tools: ["artifacts"],
+    instructions: "You write and edit: emails, posts, letters, reports, stories. Match the reader and purpose, keep it plain and human, and put long finished pieces in a markdown artifact."},
+  phone: {name: "Phone", blurb: "Uses your apps for you", model: "general", tools: ["phone"],
+    instructions: "You use apps on the user's phone for them. Start with read_screen to see what is on screen, then take one action at a time (open_app, tap, type_text, scroll, press) and read the screen again after each one to check it worked. Use the item numbers from the latest read_screen. Before anything that sends a message, posts, buys, pays, books or deletes, stop and ask the user to confirm in your reply instead of doing it. When the job is done, say what you did."},
+  planner: {name: "Planner", blurb: "Splits big jobs between the agents", model: "general", tools: ["delegate"],
+    instructions: "You break big jobs into clear steps, then hand each step to the right agent with ask_agent and pull their results together into one answer."},
+  photo: {name: "Photo maker", blurb: "Makes pictures from a description", model: "auto", tools: ["media"],
+    instructions: "You make pictures. Turn what the user asks for into one detailed English image prompt: the subject, setting, style (photo, painting, cartoon and so on), lighting, colours and framing. Then call create_image. Make one picture unless they ask for more. Afterwards say in one short line what you made and offer one change. If they ask for a change, make a new picture with an updated prompt."},
+  video: {name: "Video maker", blurb: "Makes short animated videos", model: "auto", tools: ["artifacts"],
+    instructions: "You make short animated videos as a web page the user can play and save as a video file. Always use create_artifact with kind html, and build it like this: one <canvas id=\"video\" width=\"1280\" height=\"720\" data-seconds=\"N\"> filling the page on a dark background, where N is the length in seconds (usually 6 to 15); draw every frame with JavaScript in a requestAnimationFrame loop, timed from performance.now() and looping every N seconds. Use only shapes, gradients and large clear text drawn on the canvas: no images, videos, fonts or anything loaded from the internet. Plan the scenes first (for example a title, three points, an ending), ease movements in and out, and keep text big and on screen long enough to read. Afterwards tell the user to tap Save as video to keep it."},
+};
+// Other assistants, opened on their official websites (no API keys; you sign in there).
+const WEBSITES = {
+  claude: {name: "Claude", host: "claude.ai"},
+  gemini: {name: "Gemini", host: "gemini.google.com"},
+  perplexity: {name: "Perplexity", host: "perplexity.ai"},
+};
+const DEFAULT_SETTINGS = {model: "auto", style: "normal", think: true, context: 8192, learn: false, max_steps: 12};
+const CODE_WORDS = /\b(code|coding|program|script|python|javascript|html|css|function|bug|debug|compile|app|website|game|sql|class|error|traceback|refactor|api)\b/i;
+const ACTION_WORDS = /\b(open|make|create|write|build|run|find|search|save|install|type|fix|file|folder)\b/i;
+
+// ================================================================ the bridge to Android
+
+// In the app, window.Android is the Java bridge. Opened in a normal browser (for
+// testing), a stand in keeps data in localStorage and talks to a llama-server whose
+// port is given as ?engine=PORT.
+const pending = {}; let seq = 0;
+window.__bridgeReply = raw => { const m = JSON.parse(raw), p = pending[m.id]; delete pending[m.id]; if (p) m.error ? p.reject(new Error(m.error)) : p.resolve(m.value); };
+window.__bridgeEvent = raw => onBridgeEvent(JSON.parse(raw));
+const B = window.Android || (() => {
+  const params = new URLSearchParams(location.search), enginePort = +(params.get("engine") || 0);
+  const ls = k => localStorage.getItem("da:" + k);
+  // Desk OS starts the page with ?builtin=KEY: that model is on the disk and it's the only one.
+  const builtin = params.get("builtin");
+  // The iPad version (ipad.js) can run several models, each downloaded on first use.
+  const onDevice = window.__deskIPad ? window.__deskIPad.models : builtin ? [builtin] : null;
+  if (onDevice) {
+    localStorage.setItem("da:_models", JSON.stringify(Object.fromEntries(onDevice.map(k => [k, 1e9]))));
+    localStorage.setItem("da:_builtin", JSON.stringify(onDevice));
+  }
+  return {
+    read: p => ls(p), write: (p, t) => (localStorage.setItem("da:" + p, t), true),
+    list: dir => JSON.stringify(Object.keys(localStorage).filter(k => k.startsWith("da:" + dir + "/")).map(k => k.slice(dir.length + 4))),
+    remove: p => (localStorage.removeItem("da:" + p), true),
+    models: () => ls("_models") || "{}", builtInModels: () => ls("_builtin") || "[]", deleteModel: k => { const m = JSON.parse(ls("_models") || "{}"); delete m[k]; localStorage.setItem("da:_models", JSON.stringify(m)); return true; },
+    cancelDownload: () => {}, freeSpace: () => 64e9, memory: () => 12e9, loaded: () => null,
+    isBackground: () => false, phoneEnabled: () => !builtin && localStorage.getItem("da:_phone") === "on", openPhoneSettings: () => localStorage.setItem("da:_phone", "on"),
+    keepAlive: () => {}, bringToFront: () => {}, openWebsite: k => { window.__opened = k; }, exactAlarmsAllowed: () => true, openAlarmSettings: () => {}, notificationsAllowed: () => true,
+    askForNotifications: () => {}, schedulesChanged: () => { window.__schedulesChanged = (window.__schedulesChanged || 0) + 1; },
+    scheduledDone: (chatId, title, text) => { window.__scheduledDone = {chatId, title, text}; },
+    onScreen: () => !document.hidden,
+    // Desk OS has no notification shade: show it on screen, and as a system notification if allowed.
+    notify: (key, chatId, title, text) => {
+      window.__notified = [...(window.__notified || []), {key, chatId, title, text}];
+      toast(`${title}: ${text}`.slice(0, 160));
+      try { if (window.Notification && Notification.permission === "granted") new Notification(title, {body: text}); } catch (e) {}
+    },
+    call: async (id, method, args) => {
+      const a = JSON.parse(args), reply = (value, error) => setTimeout(() => window.__bridgeReply(JSON.stringify({id, value, error})), 10);
+      try {
+        if (method === "startEngine") {
+          if (window.__deskIPad) window.__deskIPad.use(a.model);
+          // Desk OS starts the engine itself, and loading the model can take minutes on a
+          // slow computer: wait until it answers rather than failing the first message.
+          for (let i = 0; i < 450; i++) {
+            try { if ((await fetch(`http://127.0.0.1:${enginePort}/health`)).ok) { setStatus(""); return reply(enginePort); } } catch (e) {}
+            if (builtin && i === 0) setStatus("Loading the AI. The first time can take a few minutes.");
+            await new Promise(r => setTimeout(r, 2000));
+          }
+          return reply(null, "The AI didn't start. Restart the computer and try again.");
+        }
+        if (method === "httpGet") return reply(await (await fetch(a.url)).text());
+        if (method === "saveUrl") {
+          const blob = await (await fetch(a.url)).blob(), link = document.createElement("a");
+          link.href = URL.createObjectURL(blob); link.download = a.name; link.click();
+          return reply("Downloads/" + a.name);
+        }
+        if (method === "httpPost") {
+          const res = await fetch(a.url, {method: "POST", headers: a.headers || {}, body: a.body});
+          return reply(JSON.stringify({status: res.status, type: res.headers.get("content-type") || "", session: res.headers.get("mcp-session-id") || "", body: await res.text()}));
+        }
+        if (method === "saveDownload" && builtin) {
+          const link = document.createElement("a");
+          const data = a.base64 ? Uint8Array.from(atob(a.content), ch => ch.charCodeAt(0)) : a.content;
+          link.href = URL.createObjectURL(new Blob([data], {type: a.mime || "text/plain"}));
+          link.download = a.name; link.click();
+          return reply("Downloads/" + a.name);
+        }
+        if (method === "saveDownload") return reply("Downloads/" + a.name);
+        if (method.startsWith("phone") && builtin) return reply(null, "Phone control is only in the phone app.");
+        if (method === "phoneRead") return reply("App on screen: Notes\n[1] button \"New note\"\n[2] text field hint \"Title\"");
+        if (method.startsWith("phone")) return reply(`${method} ok`);
+        if (method === "download" && builtin) return reply(null, "This version has one model built in, so there's nothing to download.");
+        if (method === "download") { reply(true); const m = JSON.parse(ls("_models") || "{}"); m[a.key] = 1e9; localStorage.setItem("da:_models", JSON.stringify(m));
+          setTimeout(() => window.__bridgeEvent(JSON.stringify({type: "download", key: a.key, done: 1e9, total: 1e9, status: "done"})), 300); return; }
+        reply(true);
+      } catch (e) { reply(null, String(e.message || e)); }
+    },
+  };
+})();
+function bridge(method, args) {
+  return new Promise((resolve, reject) => { const id = "r" + (++seq); pending[id] = {resolve, reject}; B.call(id, method, JSON.stringify(args || {})); });
+}
+
+// ================================================================ saved data
+
+const readJSON = (path, fallback) => { try { const t = B.read(path); return t ? JSON.parse(t) : fallback; } catch (e) { return fallback; } };
+const writeJSON = (path, data) => B.write(path, JSON.stringify(data));
+const uid = () => Math.random().toString(36).slice(2, 12) + Date.now().toString(36).slice(-4);
+const now = () => new Date().toISOString().slice(0, 19);
+
+let settings = {...DEFAULT_SETTINGS, ...readJSON("settings.json", {})};
+// Memory used to be on from the start, and carried things from old chats into new ones
+// unasked. It's now something you switch on in Settings; switch it off once for everyone.
+if (!settings.memory_opt_in) { settings.learn = false; settings.memory_opt_in = true; writeJSON("settings.json", settings); }
+function saveSettings(changes) { Object.assign(settings, changes); writeJSON("settings.json", settings); }
+function customAgents() { return readJSON("agents.json", {}); }
+function allAgents() { return {...BUILTIN_AGENTS, ...customAgents()}; }
+function readMemory() { return (B.read("memory.txt") || "").trim(); }
+function stats() { return readJSON("stats.json", {first_used: now().slice(0, 10), jobs: 0, words_written: 0, models: {}}); }
+function bumpStats(fn) { const s = stats(); fn(s); writeJSON("stats.json", s); }
+function installed() {
+  const files = JSON.parse(B.models() || "{}");
+  // A model that sees photos also needs its picture reader (the mmproj file).
+  return Object.keys(CATALOG).filter(k => files[k] && (!CATALOG[k].mmproj || files[k + "#mmproj"]));
+}
+
+const Store = {
+  listChats() {
+    return JSON.parse(B.list("chats")).map(n => readJSON("chats/" + n, null)).filter(Boolean)
+      .map(c => ({id: c.id, title: c.title, project: c.project, agent: c.agent, updated: c.updated}))
+      .sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+  },
+  getChat: id => readJSON(`chats/${id}.json`, null),
+  saveChat(c) { c.updated = now(); writeJSON(`chats/${c.id}.json`, c); },
+  newChat(project, agent) { const c = {id: uid(), title: "New chat", project: project || null, agent: agent || "assistant", created: now(), messages: [], artifacts: []}; this.saveChat(c); return c; },
+  deleteChat: id => B.remove(`chats/${id}.json`),
+  listProjects() { return JSON.parse(B.list("projects")).map(n => readJSON("projects/" + n, null)).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name)); },
+  getProject: id => id ? readJSON(`projects/${id}.json`, null) : null,
+  saveProject: p => writeJSON(`projects/${p.id}.json`, p),
+  deleteProject(id) { B.remove(`projects/${id}.json`); for (const c of this.listChats()) if (c.project === id) { const full = this.getChat(c.id); full.project = null; this.saveChat(full); } },
+};
+
+// ================================================================ the AI engine
+
+let enginePort = 0, engineModel = null;
+async function loadModel(key) {
+  if (engineModel === key && enginePort) return enginePort;
+  setStatus(`Loading the ${CATALOG[key]?.label || key} model...`);
+  enginePort = await bridge("startEngine", {model: key, context: settings.context});
+  engineModel = key;
+  return enginePort;
+}
+
+// Streams one reply from the engine's OpenAI style chat API on 127.0.0.1.
+async function engineChat(messages, {tools, onText, signal, maxTokens = 2048} = {}) {
+  const body = {messages, stream: true, max_tokens: maxTokens, temperature: 0.4};
+  if (tools && tools.length) body.tools = tools;
+  const res = await fetch(`http://127.0.0.1:${enginePort}/v1/chat/completions`,
+    {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body), signal});
+  if (!res.ok) throw new Error(`The AI engine said: ${(await res.text()).slice(0, 300)}`);
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "", content = "", finish = null; const calls = {};
+  for (;;) {
+    let chunk;
+    try { chunk = await reader.read(); } catch (e) { if (signal && signal.aborted) { finish = "stopped"; break; } throw e; }
+    if (chunk.done) break;
+    buf += dec.decode(chunk.value, {stream: true});
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data === "[DONE]") continue;
+      const choice = JSON.parse(data).choices[0], delta = choice.delta || {};
+      if (delta.content) { content += delta.content; onText && onText(delta.content); }
+      for (const tc of delta.tool_calls || []) {
+        const slot = calls[tc.index || 0] ||= {id: "", name: "", arguments: ""};
+        slot.id = tc.id || slot.id;
+        slot.name += tc.function?.name || ""; slot.arguments += tc.function?.arguments || "";
+      }
+      finish = choice.finish_reason || finish;
+    }
+  }
+  const thoughts = [...content.matchAll(/<think>([\s\S]*?)(?:<\/think>|$)/g)].map(m => m[1].trim()).join("\n");
+  const message = {role: "assistant", content: content.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim()};
+  if (thoughts) message.thinking = thoughts;
+  const list = Object.keys(calls).sort((a, b) => a - b).map(k => calls[k]);
+  if (list.length) message.tool_calls = list.map(c => ({id: c.id || "call_" + uid(), type: "function", function: {name: c.name, arguments: c.arguments || "{}"}}));
+  return {message, finish};
+}
+
+// ================================================================ tools
+
+const tool = (name, description, properties, required) => ({type: "function", function: {name, description, parameters: {type: "object", properties, required}}});
+const TOOL_GROUPS = {
+  web: [
+    tool("web_search", "Search the web and get the top results with links.", {query: {type: "string"}}, ["query"]),
+    tool("read_webpage", "Fetch a web page and return its text.", {url: {type: "string"}}, ["url"]),
+  ],
+  artifacts: [
+    tool("create_artifact", "Show the user a finished piece of work full screen: a web page or small app (html), a drawing (svg), a document (markdown) or a code file (code). Send the complete content. Use the same title again to update it.",
+      {title: {type: "string"}, kind: {type: "string", enum: ["html", "svg", "markdown", "code"]}, language: {type: "string"}, content: {type: "string"}}, ["title", "kind", "content"]),
+  ],
+  phone: [
+    tool("read_screen", "See what is on the phone's screen now, as a numbered list of buttons, text fields and text.", {}, []),
+    tool("open_app", "Open an installed app by its name, for example Gmail, Maps or Settings.", {name: {type: "string"}}, ["name"]),
+    tool("tap", "Tap an item on screen by its number from the latest read_screen.", {item: {type: "integer"}}, ["item"]),
+    tool("type_text", "Type into a text field, by its number from read_screen. Leave out item to type into the field that is already selected.", {text: {type: "string"}, item: {type: "integer"}}, ["text"]),
+    tool("scroll", "Scroll the screen or a list up or down.", {direction: {type: "string", enum: ["up", "down"]}, item: {type: "integer"}}, ["direction"]),
+    tool("press", "Press one of the phone's own buttons.", {button: {type: "string", enum: ["back", "home", "recents", "notifications"]}}, ["button"]),
+    tool("list_apps", "List the names of the apps installed on the phone.", {}, []),
+  ],
+  info: [
+    tool("get_weather", "Current weather and the next 3 days for a place.", {place: {type: "string", description: "Town or city, for example Enfield"}}, ["place"]),
+    tool("wikipedia", "Look up a topic on Wikipedia and get the article's main text. Good for facts about people, places, history and science.", {topic: {type: "string"}}, ["topic"]),
+    tool("get_news", "Today's top news headlines with links, on a topic or overall.", {topic: {type: "string", description: "Leave out for the top UK stories"}}, []),
+    tool("convert_currency", "Convert money between currencies at today's rate.", {amount: {type: "number"}, from: {type: "string", description: "Code, for example GBP"}, to: {type: "string", description: "Code, for example EUR"}}, ["amount", "from", "to"]),
+    tool("calculate", "Work out a maths expression exactly, for example (12.5*4)/3 or sqrt(2)^3.", {expression: {type: "string"}}, ["expression"]),
+  ],
+  mydata: [
+    tool("read_calendar", "Read the events in the user's phone calendar from now on.", {days: {type: "integer", description: "How many days ahead, default 7"}}, []),
+    tool("find_contact", "Find a person in the user's phone contacts, with their numbers and email addresses.", {name: {type: "string"}}, ["name"]),
+  ],
+  media: [
+    tool("create_image", "Make a picture from a detailed description and show it to the user.",
+      {prompt: {type: "string", description: "Detailed English description of the picture"}, shape: {type: "string", enum: ["square", "portrait", "landscape"]}}, ["prompt"]),
+  ],
+  remind: [
+    tool("set_reminder", "Set a reminder: at the time given, the user gets a notification with the text. Use the current UK date and time above to work out the date.",
+      {text: {type: "string", description: "What to remind them about"}, date: {type: "string", description: "YYYY-MM-DD"}, time: {type: "string", description: "HH:MM, 24 hour"}}, ["text", "date", "time"]),
+  ],
+  ask: [
+    tool("ask_user", "Ask the user a question as a poll they answer by tapping. Use it when the request could mean different things or a real choice is theirs to make, instead of guessing. One question per poll, 2 to 4 short options; they can also type their own answer.",
+      {question: {type: "string"}, options: {type: "array", items: {type: "string"}}, multiple: {type: "boolean", description: "true if they may pick more than one"}}, ["question", "options"]),
+  ],
+  delegate: [
+    tool("ask_agent", "Hand a self contained task to a specialist agent and get its answer back. Describe the task fully; the agent can't see this chat.",
+      {agent: {type: "string", description: "Agent id"}, task: {type: "string"}}, ["agent", "task"]),
+  ],
+};
+const GROUP_PROMPTS = {
+  info: "For anything that changes (weather, news, prices, rates) or any fact you aren't sure of, look it up with your tools instead of answering from memory: get_weather, get_news, convert_currency, wikipedia. Use calculate for any sum. Say which source you used.",
+  mydata: "You can read the user's own phone calendar (read_calendar) and contacts (find_contact) when they ask about their plans or a person.",
+  media: "You can make pictures with create_image.",
+  mcp: "Connected services you can use through their tools: {connectors}.",
+  remind: "You can set reminders with set_reminder; the user gets a notification at that time.",
+  ask: "When it's unclear what the user wants, or a choice is theirs to make, ask with ask_user (a tap poll) instead of guessing. Ask one poll, then wait for the answer.",
+  web: "You can search the web and read pages. Say where information came from.",
+  artifacts: "Use create_artifact to show finished web pages, drawings, documents or code to the user.",
+  delegate: "Agents you can hand work to with ask_agent: {agents}.",
+  phone: "You can use the phone's apps with read_screen, open_app, tap, type_text, scroll, press and list_apps.",
+};
+
+function pageText(raw) {
+  const doc = new DOMParser().parseFromString(raw, "text/html");
+  doc.querySelectorAll("script,style,noscript,svg,head,nav,footer").forEach(n => n.remove());
+  return (doc.body?.innerText || doc.body?.textContent || "").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n\n").trim();
+}
+async function webSearch(query) {
+  const page = await bridge("httpGet", {url: "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query)});
+  const doc = new DOMParser().parseFromString(page, "text/html");
+  const out = [...doc.querySelectorAll("a.result__a")].slice(0, 8).map(a => {
+    let link = a.getAttribute("href") || "";
+    try { link = new URL(link, "https://duckduckgo.com").searchParams.get("uddg") || link; } catch (e) {}
+    return `${a.textContent.trim()}\n${link}`;
+  });
+  return out.join("\n\n") || "No results.";
+}
+
+// ================================================================ the agent
+
+const BASE_PROMPT = `You are {agent_name}, part of Desk Agent, an assistant running entirely on the user's own phone. Nothing they say leaves the phone, apart from web searches.
+It is now {today}. Use this for anything about dates, days or times.
+
+{instructions}
+
+{tools}Use a tool whenever it helps, one step at a time, and look at each result before the next step.
+Write in plain language and keep it readable on a phone screen. Use markdown for structure when it helps: headings, lists, tables and fenced code blocks with the language named.`;
+const THINK_PROMPT = "Before answering, think the problem through step by step inside <think></think> tags, then give your answer after the closing tag.";
+const LEARN_PROMPT = `You keep a short memory file about one user of an assistant app, so it gets more useful over time.
+
+Current memory:
+<memory>
+{memory}
+</memory>
+
+A conversation that just finished:
+<conversation>
+{transcript}
+</conversation>
+
+Rewrite the memory to include anything new and lasting worth knowing next time: who they are, their work, preferences, interests, how they like things done, and jobs they repeat.
+Leave out one off details, and anything secret such as passwords or card numbers.
+Reply with only the new memory as short bullet points, under 300 words. If nothing new was learned, reply with the memory unchanged.`;
+
+let job = null;  // {chatId, controller}
+
+// Helper agents (allowDelegate false) can't ask the user anything: only the main chat can.
+function agentGroups(agent, allowDelegate) {
+  return [...(agent.tools || []).filter(g => g !== "mydata" || window.Android), ...(allowDelegate ? ["remind"] : []), ...(allowDelegate && !B.isBackground() ? ["ask"] : []), ...(allowDelegate && mcpTools.length ? ["mcp"] : [])].filter(g => g !== "delegate" || allowDelegate);
+}
+function toolsFor(agent, allowDelegate = true) {
+  return agentGroups(agent, allowDelegate).flatMap(g => g === "mcp" ? mcpTools.map(t => t.def) : TOOL_GROUPS[g] || []);
+}
+// The date and time in the UK, GMT in winter and BST in summer, worked out fresh for every message.
+function ukNow() {
+  const d = new Date();
+  const date = d.toLocaleDateString("en-GB", {timeZone: "Europe/London", weekday: "long", day: "numeric", month: "long", year: "numeric"});
+  const time = d.toLocaleTimeString("en-GB", {timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", timeZoneName: "short"});
+  return `${date}, ${time}`;
+}
+function systemPrompt(agentId, agent, c, {style = "normal", think = false, allowDelegate = true} = {}) {
+  const others = Object.entries(allAgents()).filter(([k]) => k !== agentId).map(([k, a]) => `${k} (${a.name})`).join(", ");
+  const parts = agentGroups(agent, allowDelegate).filter(g => GROUP_PROMPTS[g]).map(g => GROUP_PROMPTS[g].replace("{agents}", others).replace("{connectors}", [...new Set(mcpTools.map(t => t.server.name))].join(", ")));
+  let p = BASE_PROMPT.replace("{agent_name}", agent.name).replace("{today}", ukNow())
+    .replace("{instructions}", agent.instructions || "").replace("{tools}", parts.length ? parts.join("\n") + "\n" : "");
+  if (STYLES[style]) p += "\n\nStyle: " + STYLES[style];
+  if (think) p += "\n\n" + THINK_PROMPT;
+  const proj = c && Store.getProject(c.project);
+  if (proj) {
+    p += `\n\nThis chat is part of the project "${proj.name}".`;
+    if (proj.instructions) p += `\nProject instructions:\n${proj.instructions}`;
+    let budget = Math.floor(settings.context * 1.5);
+    for (const f of proj.files || []) { if (budget <= 0) break; const t = f.text.slice(0, budget); budget -= t.length; p += `\n\n<project_file name="${f.name}">\n${t}\n</project_file>`; }
+  }
+  const memory = settings.learn ? readMemory() : "";
+  if (memory) p += `\n\nWhat you have learned about this user from earlier conversations:\n${memory}`;
+  return p;
+}
+// The conversation as the model sees it, trimmed from the oldest end to fit.
+function modelMessages(messages, system) {
+  const out = messages.map(m => {
+    const m2 = {role: m.role, content: m.content || ""};
+    if (m.tool_calls) m2.tool_calls = m.tool_calls;
+    if (m.tool_call_id) m2.tool_call_id = m.tool_call_id;
+    if (m.role === "user" && m.attachments?.length) {
+      // Leave room for the reply and the rest of the chat: very long files are cut.
+      const room = Math.floor(settings.context * 2.6 * 0.6 / Math.max(1, m.attachments.filter(a => a.text).length));
+      m2.content += m.attachments.filter(a => a.text).map(a => `\n\n<attached_file name="${a.name}">\n${a.text.length > room
+        ? a.text.slice(0, room) + `\n...(cut here: the file is ${a.text.length.toLocaleString()} characters, more than fits; say so if the answer needs the rest)` : a.text}\n</attached_file>`).join("");
+      const photos = m.attachments.filter(a => a.image);
+      if (photos.length && CATALOG[engineModel]?.vision) {
+        m2.content = [{type: "text", text: m2.content || "What's in this photo?"}, ...photos.map(a => ({type: "image_url", image_url: {url: a.image}}))];
+      } else if (photos.length) {
+        m2.content += `\n\n(${photos.length} photo${photos.length > 1 ? "s" : ""} attached, but the current model can't see photos. Tell the user to get the Vision model in Models.)`;
+      }
+    }
+    return m2;
+  });
+  const budget = Math.floor(settings.context * 2.6) - system.length;
+  let total = 0, start = out.length;
+  while (start > 0 && total + JSON.stringify(out[start - 1]).length < budget) total += JSON.stringify(out[--start]).length;
+  start = Math.min(start, out.length - 1);
+  while (start > 0 && out[start].role === "tool") start--;
+  return [{role: "system", content: system}, ...out.slice(start)];
+}
+function chooseModel(agent, text, first, hasPhoto = false) {
+  const ready = installed();
+  if (!ready.length) throw new Error("No AI model is downloaded yet. Open Models to get one.");
+  if (hasPhoto && ready.includes("vision") && !CATALOG[settings.model]?.vision) return ["vision", "the message has a photo"];
+  let wanted = settings.model !== "auto" ? settings.model : agent.model || "auto";
+  // On iPad each switch reloads a model, so Auto sticks to one.
+  if (window.__deskIPad && wanted === "auto") wanted = ready.includes("quick") ? "quick" : ready[0];
+  if (wanted !== "auto") return ready.includes(wanted) ? [wanted, null] : [ready.includes("general") ? "general" : ready[0], `${wanted} isn't downloaded`];
+  if (CODE_WORDS.test(text) && ready.includes("coder")) return ["coder", "it looks like a coding job"];
+  if (first && text.split(/\s+/).length < 12 && !ACTION_WORDS.test(text) && ready.includes("quick")) return ["quick", "it's a short question"];
+  return [ready.includes("general") ? "general" : ready[0], null];
+}
+
+async function startJob(c, body) {
+  if (job) throw new Error("Already working on something. Wait for it to finish or press Stop.");
+  if (body.regenerate) {
+    while (c.messages.length && c.messages[c.messages.length - 1].role !== "user") c.messages.pop();
+    if (!c.messages.length) throw new Error("Nothing to regenerate.");
+  } else {
+    if (body.edit_index !== undefined) c.messages.splice(body.edit_index);
+    const m = {role: "user", content: (body.text || "").trim(), attachments: body.attachments || []};
+    if (!m.content && !m.attachments.length) throw new Error("Type a message first.");
+    c.messages.push(m);
+    if (c.title === "New chat") c.title = (m.content.split(/\s+/).slice(0, 7).join(" ") || m.attachments[0].name).slice(0, 60);
+  }
+  Store.saveChat(c);
+  job = {chatId: c.id, controller: new AbortController()};
+  runJob(c, body);
+}
+
+async function runJob(c, body) {
+  let model = null;
+  try {
+    const agentId = c.agent || "assistant", agent = allAgents()[agentId] || BUILTIN_AGENTS.assistant;
+    const lastUser = [...c.messages].reverse().find(m => m.role === "user");
+    const [m, reason] = chooseModel(agent, lastUser.content || "", c.messages.filter(x => x.role === "user").length === 1, (lastUser.attachments || []).some(a => a.image));
+    model = m;
+    if (reason) emit({type: "status", chat: c.id, text: `Using ${CATALOG[m]?.label || m} because ${reason}`});
+    await loadModel(m);
+    await mcpLoad(c);
+    const system = systemPrompt(agentId, agent, c, {style: body.style, think: body.think});
+    await agentLoop(c, c.messages, system, toolsFor(agent), null);
+  } catch (e) {
+    if (!(job && job.controller.signal.aborted)) emit({type: "error", chat: c.id, text: e.message || String(e)});
+  } finally {
+    const stopped = job && job.controller.signal.aborted;
+    Store.saveChat(c);
+    job = null;
+    emit({type: "done", chat: c.id});
+    if (model) afterJob(c, model, stopped);
+    onJobDone(c, stopped);
+    if (!B.isBackground()) setTimeout(() => sendNextQueued(stopped ? c.id : null), 50);
+  }
+}
+
+// One agent working until it answers. sub is the ask_agent call id for helper agents.
+async function agentLoop(c, messages, system, tools, sub) {
+  const steps = sub ? 8 : settings.max_steps;
+  for (let i = 0; i < steps; i++) {
+    if (job.controller.signal.aborted) return "Stopped by the user.";
+    emit({type: "assistant_start", chat: c.id, sub});
+    const {message, finish} = await engineChat(modelMessages(messages, system),
+      {tools: CATALOG[engineModel]?.tools === false ? [] : tools, signal: job.controller.signal, onText: t => emit({type: "token", chat: c.id, sub, text: t})});
+    messages.push(message);
+    bumpStats(s => s.words_written = (s.words_written || 0) + (message.content || "").split(/\s+/).filter(Boolean).length);
+    if (!sub) Store.saveChat(c);
+    emit({type: "assistant_end", chat: c.id, sub, message});
+    const calls = message.tool_calls || [];
+    if (!calls.length) {
+      if (finish === "length") emit({type: "error", chat: c.id, text: "The reply was cut off. Say 'continue' for the rest."});
+      return message.content || "";
+    }
+    for (const call of calls) {
+      const [result, extra] = await runTool(c, call, sub);
+      messages.push({role: "tool", tool_call_id: call.id, content: result, ...extra});
+      if (!sub) Store.saveChat(c);
+    }
+    if (calls.some(call => call.function.name === "ask_user")) return "";  // wait for their tap
+  }
+  return "Stopped: too many steps.";
+}
+
+async function runTool(c, call, sub) {
+  const name = call.function.name;
+  let args;
+  try { args = JSON.parse(call.function.arguments || "{}"); } catch (e) { return [`ERROR: the arguments were not valid JSON: ${call.function.arguments.slice(0, 400)}`, {}]; }
+  const mcpTool = mcpTools.find(t => t.def.function.name === name);
+  if (mcpTool) {
+    emit({type: "tool_call", chat: c.id, sub, id: call.id, name, args});
+    let result;
+    try { result = await mcpCall(mcpTool, args); } catch (e) { result = `ERROR: ${e.message || e}`; }
+    if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
+    emit({type: "tool_result", chat: c.id, sub, id: call.id, name, result: result.slice(0, 3000)});
+    return [result, {}];
+  }
+  const def = Object.values(TOOL_GROUPS).flat().find(t => t.function.name === name);
+  if (!def) return [`ERROR: there is no tool called ${name}.`, {}];
+  const props = def.function.parameters.properties;
+  const missing = def.function.parameters.required.filter(k => args[k] === undefined || args[k] === "" || (props[k].type === "integer" && !Number.isInteger(+args[k])));
+  if (missing.length) return [`ERROR: missing ${missing.join(", ")}.`, {}];
+  emit({type: "tool_call", chat: c.id, sub, id: call.id, name, args});
+  let result, extra = {};
+  try {
+    if (name === "web_search") result = await webSearch(args.query);
+    else if (name === "read_webpage") result = pageText(await bridge("httpGet", {url: args.url}));
+    else if (name === "create_artifact") [result, extra] = makeArtifact(c, args);
+    else if (name === "ask_agent") [result, extra] = await askAgent(c, call.id, args);
+    else if (name === "ask_user") result = "The poll is on screen. Wait for the user's answer in their next message.";
+    else if (name === "create_image") [result, extra] = await makeImage(c, args);
+    else if (name === "set_reminder") result = setReminder(args);
+    else if (INFO_TOOLS[name]) result = await INFO_TOOLS[name](args);
+    else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
+  } catch (e) { result = `ERROR: ${e.message || e}`; }
+  if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
+  emit({type: "tool_result", chat: c.id, sub, id: call.id, name, result: result.slice(0, 3000)});
+  return [result, extra];
+}
+function makeArtifact(c, a) {
+  c.artifacts ||= [];
+  const old = c.artifacts.find(x => x.title === a.title);
+  const art = {id: old ? old.id : uid(), title: a.title, kind: a.kind, language: a.language || "", content: a.content, version: old ? old.version + 1 : 1};
+  if (old) c.artifacts[c.artifacts.indexOf(old)] = art; else c.artifacts.push(art);
+  emit({type: "artifact", chat: c.id, artifact: art});
+  return [`Shown to the user as '${a.title}' (version ${art.version}).`, {artifact: art.id}];
+}
+async function askAgent(c, callId, a) {
+  const agents = allAgents();
+  let id = a.agent.trim().toLowerCase();
+  if (!agents[id]) id = Object.keys(agents).find(k => agents[k].name.toLowerCase() === id);
+  if (!id) return [`ERROR: no agent called ${a.agent}. Choose from: ${Object.keys(agents).join(", ")}.`, {}];
+  const agent = agents[id];
+  emit({type: "agent_start", chat: c.id, id: callId, agent: agent.name});
+  const messages = [{role: "user", content: a.task}];
+  const answer = await agentLoop(c, messages, systemPrompt(id, agent, c, {allowDelegate: false}), toolsFor(agent, false), callId);
+  emit({type: "agent_end", chat: c.id, id: callId});
+  const log = messages.slice(1).map(m => ({role: m.role, content: (m.content || "").slice(0, 3000), tools: (m.tool_calls || []).map(t => t.function.name)}));
+  return [`${agent.name} replied:\n${answer}`, {agent: agent.name, agent_log: log}];
+}
+
+function afterJob(c, model, stopped) {
+  bumpStats(s => { s.jobs = (s.jobs || 0) + 1; s.models = s.models || {}; s.models[model] = (s.models[model] || 0) + 1; s.last_used = now(); });
+  renderStats();
+  if (!settings.learn || stopped) return;
+  const lines = c.messages.slice(-30).filter(m => (m.role === "user" || m.role === "assistant") && m.content).map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`);
+  const prompt = LEARN_PROMPT.replace("{memory}", readMemory() || "(empty)").replace("{transcript}", lines.join("\n").slice(-12000));
+  engineChat([{role: "user", content: prompt}], {maxTokens: 700}).then(({message, finish}) => {
+    if (finish === "stop" && message.content) B.write("memory.txt", message.content.trim() + "\n");
+  }).catch(() => {});
+}
+
+// ================================================================ the page
+
+let chat = null, project = null, attachments = [], live = null, currentArt = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const icon = (name, style = "") => `<svg class="i"${style ? ` style="${style}"` : ""}><use href="#i-${name}"/></svg>`;
+function setStatus(t) { $("status").textContent = t || ""; }
+let toastTimer = null;
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 3200); }
+function openDrawer() { renderSide(); document.body.classList.add("drawer"); }
+function closeDrawer() { document.body.classList.remove("drawer"); }
+
+// Android's back button: close whatever is on top first.
+window.onBack = () => {
+  if (document.querySelector(".sheet-bg")) { closeSheet(); return true; }
+  if ($("panel").classList.contains("open")) { closePanel(); return true; }
+  if (document.body.classList.contains("drawer")) { closeDrawer(); return true; }
+  return false;
+};
+
+function md(src) {
+  const blocks = [];
+  src = String(src || "").replace(/```([\w+-]*)[^\n]*\n([\s\S]*?)(```|$)/g, (_, lang, code) => { blocks.push({lang, code: code.replace(/\n$/, "")}); return `\u0000${blocks.length - 1}\u0000`; });
+  const inline = t => esc(t)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2">$2</a>');
+  const lines = src.split("\n"); let out = "", i = 0;
+  while (i < lines.length) {
+    const line = lines[i], block = line.match(/^\u0000(\d+)\u0000$/);
+    if (block) { const b = blocks[+block[1]]; out += codeBlock(b.code, b.lang); i++; continue; }
+    if (/^#{1,3} /.test(line)) { const n = line.match(/^#+/)[0].length; out += `<h${n}>${inline(line.slice(n + 1))}</h${n}>`; i++; continue; }
+    if (/^\s*[-*] /.test(line)) { out += "<ul>"; while (i < lines.length && /^\s*[-*] /.test(lines[i])) out += `<li>${inline(lines[i++].replace(/^\s*[-*] /, ""))}</li>`; out += "</ul>"; continue; }
+    if (/^\s*\d+[.)] /.test(line)) { out += "<ol>"; while (i < lines.length && /^\s*\d+[.)] /.test(lines[i])) out += `<li>${inline(lines[i++].replace(/^\s*\d+[.)] /, ""))}</li>`; out += "</ol>"; continue; }
+    if (/^> ?/.test(line)) { const q = []; while (i < lines.length && /^> ?/.test(lines[i])) q.push(lines[i++].replace(/^> ?/, "")); out += `<blockquote>${inline(q.join(" "))}</blockquote>`; continue; }
+    if (/^\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      const cells = l => l.trim().slice(1, -1).split("|").map(x => inline(x.trim()));
+      out += "<table><tr>" + cells(line).map(x => `<th>${x}</th>`).join("") + "</tr>"; i += 2;
+      while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) out += "<tr>" + cells(lines[i++]).map(x => `<td>${x}</td>`).join("") + "</tr>";
+      out += "</table>"; continue;
+    }
+    if (!line.trim()) { i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !/^(#{1,3} |\s*[-*] |\s*\d+[.)] |> ?|\u0000|\|)/.test(lines[i])) para.push(lines[i++]);
+    if (!para.length) para.push(lines[i++]);
+    out += `<p>${inline(para.join("\n")).replace(/\n/g, "<br>")}</p>`;
+  }
+  return out;
+}
+const snippets = {};
+function codeBlock(code, lang) {
+  const id = "c" + uid(); snippets[id] = code;
+  const preview = /^(html|svg)$/i.test(lang) ? `<button onclick="openArt({title: 'Preview', kind: '${lang.toLowerCase()}', content: snippets['${id}']})">Preview</button>` : "";
+  return `<div class="codeblock"><div class="bar"><span>${esc(lang || "code")}</span><span>${preview}<button onclick="copyText(snippets['${id}'], this)">Copy</button></span></div><pre><code>${esc(code)}</code></pre></div>`;
+}
+function copyText(text, btn) {
+  const done = () => { if (btn && btn.textContent.trim()) { const t = btn.textContent; btn.textContent = "Copied"; setTimeout(() => btn.textContent = t, 1200); } else toast("Copied"); };
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done)); else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); done(); }
+
+// ------------------------------------------------ drawer
+
+function renderSide() {
+  const q = $("search").value.toLowerCase(), projects = Store.listProjects(), chats = Store.listChats();
+  $("projects").innerHTML = projects.map(p => `<button class="row-btn ${project === p.id ? "active" : ""}" onclick="pickProject('${p.id}')">${icon("folder")}<span>${esc(p.name)}</span>
+      <i class="end" onclick="event.stopPropagation(); editProject('${p.id}')">${icon("edit", "width:18px;height:18px")}</i></button>`).join("")
+    || `<div class="empty-note">Group chats with their own instructions and files.</div>`;
+  const proj = projects.find(p => p.id === project);
+  $("chatsLabel").innerHTML = proj ? `${esc(proj.name)} &middot; <a href="#" onclick="pickProject(null); return false">show all</a>` : "Recent";
+  const list = chats.filter(c => (!project || c.project === project) && (!q || (c.title || "").toLowerCase().includes(q)));
+  $("chats").innerHTML = list.map(c => `<button class="row-btn ${chat && chat.id === c.id ? "active" : ""}" onclick="openChat('${c.id}')"><span>${esc(c.title)}</span>
+      <i class="end" onclick="event.stopPropagation(); deleteChat('${c.id}')" aria-label="Delete">${icon("trash", "width:18px;height:18px")}</i></button>`).join("")
+    || `<div class="empty-note">${q ? "No chats match." : "Your chats will appear here."}</div>`;
+  renderStats();
+}
+function renderStats() { const s = stats(); $("stats").textContent = `${s.jobs || 0} ${s.jobs === 1 ? "reply" : "replies"} since ${new Date(s.first_used).toLocaleDateString("en-GB", {day: "numeric", month: "short"})}`; }
+function pickProject(id) { project = id; renderSide(); if (!id) return; const c = Store.listChats().find(x => x.project === id); c ? openChat(c.id) : newChat(); }
+
+// The small line above the message bar only appears when something isn't the default.
+function renderMode() {
+  const parts = [], agents = allAgents(), agent = currentAgent();
+  if (agent !== "assistant") parts.push(agents[agent]?.name || agent);
+  if (settings.model !== "auto" && installed().includes(settings.model)) parts.push(CATALOG[settings.model].label);
+  if (settings.style !== "normal") parts.push(settings.style[0].toUpperCase() + settings.style.slice(1));
+  if (settings.think) parts.push("Think first");
+  $("mode").textContent = parts.join(" · ");
+}
+function renderOpts() {
+  renderMode();
+  $("title").value = chat?.title || "New chat";
+  $("sendBtn").hidden = false; $("stopBtn").hidden = !job;  // send stays: messages queue while it's busy
+}
+
+// ------------------------------------------------ chats
+
+function currentAgent() { return chat?.agent || window.nextAgent || "assistant"; }
+function newChat() { chat = Store.newChat(project, currentAgent()); window.nextAgent = null; closeDrawer(); closePanel(); renderSide(); renderOpts(); renderChat(); }
+function openChat(id) { chat = Store.getChat(id); if (!chat) return; if (chat.project) project = chat.project; closeDrawer(); closePanel(); renderSide(); renderOpts(); renderChat(); }
+function deleteChat(id) { if (!confirm("Delete this chat?")) return; Store.deleteChat(id); if (chat && chat.id === id) chat = null; renderSide(); renderOpts(); renderChat(); }
+function renameChat(title) { if (chat) { chat.title = title.trim() || "New chat"; Store.saveChat(chat); renderSide(); } }
+function setChatField(key, value) { if (!chat) chat = Store.newChat(project, "assistant"); chat[key] = value; Store.saveChat(chat); renderOpts(); }
+
+function renderChat() {
+  const box = $("chat");
+  if (!chat || !chat.messages.length) {
+    const ready = installed().length;
+    box.innerHTML = `<div id="empty"><span class="mark">${icon("spark")}</span>
+      <h1>${ready ? greeting() : "Welcome"}</h1>
+      <p>${ready ? `Runs on this ${window.Android ? "phone" : "computer"}. Works without the internet.` : "Download a model to get started. It's a one off, and then it works offline."}</p>
+      ${ready ? "" : `<button class="filled" onclick="showModels()">Choose a model</button>`}
+      ${ready && smarterModel() ? `<div class="upgrade"><b>Make it smarter</b><span>${CATALOG.general.label} (${CATALOG.general.detail}) understands far more and uses its tools properly. ${CATALOG.general.size_gb} GB, over Wi-Fi, once.</span>
+        <button class="tonal" onclick="showModels()">Get ${CATALOG.general.label}</button></div>` : ""}</div>`;
+    return;
+  }
+  const results = {}; chat.messages.filter(m => m.role === "tool").forEach(m => results[m.tool_call_id] = m);
+  const lastAnswer = chat.messages.reduce((last, m, i) => m.role === "assistant" && m.content ? i : last, -1);
+  let out = "";
+  chat.messages.forEach((m, i) => {
+    if (m.role === "user") {
+      out += `<div class="msg user" onclick="this.classList.toggle('show')"><div class="bubble">${esc(m.content)}</div>
+        ${(m.attachments || []).map(a => a.image ? `<img class="sent-photo" src="${a.image}" alt="${esc(a.name)}">` : `<div class="attached">${icon("doc")}${esc(a.name)}</div>`).join("")}
+        <div class="tools-row"><button class="icon-btn" onclick="event.stopPropagation(); editMessage(${i})" aria-label="Edit">${icon("edit")}</button>
+        <button class="icon-btn" onclick="event.stopPropagation(); copyText(chat.messages[${i}].content)" aria-label="Copy">${icon("copy")}</button></div></div>`;
+    } else if (m.role === "assistant") {
+      const steps = (m.tool_calls || []).map(c => toolHtml(c, results[c.id])).join("");
+      if (!steps && !m.content && !m.thinking) return;
+      out += `<div class="msg ai">`;
+      if (m.thinking) out += step("bulb", "Reasoning", esc(m.thinking), "thinking");
+      if (m.content) out += `<div class="md">${md(m.content)}</div>`;
+      out += steps;
+      if (i === lastAnswer) out += `<div class="tools-row"><button class="icon-btn" onclick="copyText(chat.messages[${i}].content)" aria-label="Copy">${icon("copy")}</button>
+        <button class="icon-btn" onclick="regenerate()" aria-label="Try again">${icon("redo")}</button></div>`;
+      out += `</div>`;
+    }
+  });
+  box.innerHTML = out;
+  box.scrollTop = box.scrollHeight;
+}
+// On a phone with memory to spare, suggest the bigger model until it's downloaded.
+function smarterModel() {
+  if (!window.Android || installed().includes("general") || downloads.general) return false;
+  return B.memory() >= 7e9 && B.freeSpace() > 4e9;
+}
+function greeting() { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening"; }
+function step(iconName, label, detail, cls = "", isMd = false) {
+  return `<details class="step ${cls}"><summary>${icon(iconName)}<span class="txt">${esc(label)}</span>${icon("chev", "width:16px;height:16px").replace('class="i"', 'class="i chev"')}</summary>
+    <div class="detail${isMd ? " md" : ""}">${detail}</div></details>`;
+}
+function toolHtml(call, result) {
+  let a = {}; try { a = JSON.parse(call.function.arguments || "{}"); } catch (e) {}
+  const name = call.function.name;
+  if (name === "create_artifact") {
+    const art = (chat.artifacts || []).find(x => result && x.id === result.artifact) || (chat.artifacts || []).find(x => x.title === a.title);
+    return art ? artifactCard(art) : "";
+  }
+  if (name === "ask_user") return pollHtml(call.id, a, !result || isLatestPoll(call.id));
+  if (name === "create_image") {
+    const img = (chat.images || []).find(x => result && x.id === result.image);
+    return img ? imageHtml(img) : step("image", "Making a picture...", "");
+  }
+  if (name === "ask_agent") {
+    const log = (result?.agent_log || []).map(e => e.content ? md(e.content) : "").join("") || esc(result?.content || "Working...");
+    return `<div class="agentbox">${step("person", `Asked ${result?.agent || a.agent}: ${a.task || ""}`, log, "", true)}</div>`;
+  }
+  return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
+}
+// ------------------------------------------------ looking things up (free sources, no keys)
+
+const getJSON = async url => JSON.parse(await bridge("httpGet", {url}));
+const WEATHER = {0: "clear", 1: "mostly clear", 2: "partly cloudy", 3: "cloudy", 45: "fog", 48: "freezing fog", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle",
+  61: "light rain", 63: "rain", 65: "heavy rain", 66: "freezing rain", 67: "heavy freezing rain", 71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains",
+  80: "light showers", 81: "showers", 82: "heavy showers", 85: "snow showers", 86: "heavy snow showers", 95: "thunderstorms", 96: "thunderstorms with hail", 99: "thunderstorms with heavy hail"};
+const INFO_TOOLS = {
+  // Open-Meteo: free weather, no key.
+  async get_weather(a) {
+    const g = await getJSON(`https://geocoding-api.open-meteo.com/v1/search?count=1&language=en&name=${encodeURIComponent(a.place)}`);
+    const pl = g.results?.[0];
+    if (!pl) return `ERROR: couldn't find a place called ${a.place}.`;
+    const w = await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${pl.latitude}&longitude=${pl.longitude}&timezone=auto&forecast_days=3` +
+      "&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&wind_speed_unit=mph");
+    const c = w.current, d = w.daily;
+    const days = d.time.map((t, i) => `${new Date(t).toLocaleDateString("en-GB", {weekday: "long"})}: ${WEATHER[d.weather_code[i]] || "mixed"}, ${Math.round(d.temperature_2m_min[i])} to ${Math.round(d.temperature_2m_max[i])}°C, ${d.precipitation_probability_max[i]}% chance of rain`);
+    return `${pl.name}${pl.admin1 ? ", " + pl.admin1 : ""}, ${pl.country} (source: Open-Meteo)\nNow: ${WEATHER[c.weather_code] || "mixed"}, ${Math.round(c.temperature_2m)}°C (feels like ${Math.round(c.apparent_temperature)}°C), wind ${Math.round(c.wind_speed_10m)} mph, humidity ${c.relative_humidity_2m}%\n${days.join("\n")}`;
+  },
+  async wikipedia(a) {
+    const api = "https://en.wikipedia.org/w/api.php?format=json&origin=*&action=query";
+    const found = await getJSON(`${api}&list=search&srlimit=1&srsearch=${encodeURIComponent(a.topic)}`);
+    const title = found.query?.search?.[0]?.title;
+    if (!title) return `Nothing on Wikipedia for "${a.topic}".`;
+    const page = await getJSON(`${api}&prop=extracts&explaintext=1&redirects=1&titles=${encodeURIComponent(title)}`);
+    const text = Object.values(page.query.pages)[0].extract || "";
+    return `Wikipedia: ${title} (https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))})\n\n${text.slice(0, 5000)}`;
+  },
+  async get_news(a) {
+    const url = a.topic ? `https://news.google.com/rss/search?hl=en-GB&gl=GB&ceid=GB:en&q=${encodeURIComponent(a.topic)}` : "https://feeds.bbci.co.uk/news/rss.xml";
+    const doc = new DOMParser().parseFromString(await bridge("httpGet", {url}), "text/xml");
+    const items = [...doc.querySelectorAll("item")].slice(0, 8).map(it => {
+      const t = it.querySelector("title")?.textContent?.trim(), date = it.querySelector("pubDate")?.textContent;
+      return `${t}${date ? ` (${new Date(date).toLocaleDateString("en-GB", {day: "numeric", month: "short"})})` : ""}\n${it.querySelector("link")?.textContent?.trim() || ""}`;
+    });
+    return items.length ? `${a.topic ? "Google News" : "BBC News"}:\n\n${items.join("\n\n")}` : "No news found.";
+  },
+  // Frankfurter: European Central Bank rates, free, no key.
+  async convert_currency(a) {
+    const from = String(a.from).toUpperCase(), to = String(a.to).toUpperCase();
+    const r = await getJSON(`https://api.frankfurter.app/latest?amount=${+a.amount}&from=${from}&to=${to}`);
+    if (!r.rates?.[to]) return `ERROR: couldn't convert ${from} to ${to}.`;
+    return `${a.amount} ${from} = ${r.rates[to]} ${to} (European Central Bank rate for ${r.date}, via Frankfurter)`;
+  },
+  calculate(a) { return calculate(a.expression); },
+};
+// Plain maths only: numbers, + - * / ^ % brackets and a few named functions.
+function calculate(expr) {
+  const src = String(expr).replace(/×/g, "*").replace(/÷/g, "/").replace(/\^/g, "**").replace(/,(?=\d{3}\b)/g, "");
+  const named = src.replace(/\b(sqrt|abs|round|floor|ceil|sin|cos|tan|log|ln|exp|pi|e|min|max|pow)\b/gi, "");
+  if (/[^\d\s+\-*/%().,]/.test(named)) return "ERROR: only numbers, + - * / ^ % and brackets, sqrt, round, log and similar are allowed.";
+  const scope = {sqrt: Math.sqrt, abs: Math.abs, round: Math.round, floor: Math.floor, ceil: Math.ceil, sin: Math.sin, cos: Math.cos, tan: Math.tan,
+    log: Math.log10, ln: Math.log, exp: Math.exp, pi: Math.PI, e: Math.E, min: Math.min, max: Math.max, pow: Math.pow};
+  try {
+    const value = Function(...Object.keys(scope), `"use strict"; return (${src.replace(/\b(sqrt|abs|round|floor|ceil|sin|cos|tan|log|ln|exp|pi|e|min|max|pow)\b/gi, m => m.toLowerCase())});`)(...Object.values(scope));
+    return Number.isFinite(value) ? `${expr} = ${+value.toPrecision(12)}` : "ERROR: that doesn't give a number.";
+  } catch (e) { return "ERROR: couldn't read that sum."; }
+}
+INFO_TOOLS.read_calendar = a => bridge("phoneCalendar", {days: a.days || 7});
+INFO_TOOLS.find_contact = a => bridge("phoneContacts", {name: a.name});
+
+// ------------------------------------------------ pictures
+
+// Pictures come from Pollinations, a free online image service that needs no key.
+// The chat keeps the address, not the picture, so chats stay small.
+const IMAGE_SIZES = {square: [1024, 1024], portrait: [768, 1152], landscape: [1152, 768]};
+async function makeImage(c, a) {
+  if (!navigator.onLine) return ["ERROR: making pictures needs the internet, and this device is offline. Tell the user.", {}];
+  const [w, h] = IMAGE_SIZES[a.shape] || IMAGE_SIZES.square, seed = Math.floor(Math.random() * 1e9);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(a.prompt.slice(0, 900))}?width=${w}&height=${h}&seed=${seed}&nologo=true`;
+  // Wait for it to be made, so a failure is reported instead of showing a broken picture.
+  const ok = await new Promise(done => {
+    const im = new Image();
+    const timer = setTimeout(() => done(false), 120000);
+    im.onload = () => { clearTimeout(timer); done(true); };
+    im.onerror = () => { clearTimeout(timer); done(false); };
+    im.src = url;
+  });
+  if (!ok) return ["ERROR: the picture service didn't answer. It may be busy: tell the user to try again in a minute.", {}];
+  const img = {id: uid(), url, prompt: a.prompt, w, h};
+  (c.images ||= []).push(img);
+  return ["The picture is on screen for the user.", {image: img.id}];
+}
+const imgs = {};
+function imageHtml(img) {
+  imgs[img.id] = img;
+  return `<figure class="picture"><img src="${esc(img.url)}" alt="${esc(img.prompt)}" width="${img.w}" height="${img.h}" loading="lazy">
+    <figcaption><span>${esc(img.prompt)}</span><button class="icon-btn" onclick="saveImage('${img.id}')" aria-label="Save picture">${icon("save")}</button></figcaption></figure>`;
+}
+async function saveImage(id) {
+  const img = imgs[id], name = img.prompt.split(/\s+/).slice(0, 5).join(" ").replace(/[^\w ]/g, "") + ".jpg";
+  try { toast("Saved to " + await bridge("saveUrl", {url: img.url, name, mime: "image/jpeg"})); } catch (e) { toast("Couldn't save: " + e.message); }
+}
+
+// A poll from ask_user: tap an option to answer it (multiple: pick, then Send).
+const polls = {};
+function isLatestPoll(id) {
+  const i = chat.messages.findIndex(m => (m.tool_calls || []).some(t => t.id === id));
+  return i >= 0 && !chat.messages.slice(i + 1).some(m => m.role === "user") && !job;
+}
+function pollHtml(id, a, open) {
+  const options = (Array.isArray(a.options) ? a.options : []).map(String).slice(0, 6);
+  polls[id] = {options, multiple: !!a.multiple, picked: new Set()};
+  const buttons = options.map((o, i) => `<button class="poll-opt" ${open ? "" : "disabled"} onclick="pollTap('${id}', ${i}, this)">${esc(o)}</button>`).join("");
+  return `<div class="poll"><div class="poll-q">${esc(a.question || "")}</div><div class="poll-opts">${buttons}</div>
+    ${open && a.multiple ? `<button class="filled poll-send" onclick="pollSend('${id}')">Send</button>` : ""}
+    ${open ? `<small>Or type your own answer below.</small>` : ""}</div>`;
+}
+function pollTap(id, i, el) {
+  const p = polls[id];
+  if (!p.multiple) { $("input").value = p.options[i]; send(); return; }
+  p.picked.has(i) ? p.picked.delete(i) : p.picked.add(i);
+  el.classList.toggle("on", p.picked.has(i));
+}
+function pollSend(id) {
+  const p = polls[id];
+  if (!p.picked.size) return toast("Pick at least one");
+  $("input").value = [...p.picked].sort().map(i => p.options[i]).join(", ");
+  send();
+}
+function toolIcon(name) { return name === "create_image" ? "image" : name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : name === "set_reminder" ? "clock" : "globe"; }
+function toolLabel(name, a) {
+  if (PHONE_TOOLS[name]) return PHONE_TOOLS[name](a);
+  if (name === "web_search") return `Searched for “${a.query}”`;
+  if (name === "set_reminder") return `Reminder set: ${a.text} (${a.date} ${a.time})`;
+  const infoLabel = {get_weather: () => `Checked the weather for ${a.place}`, wikipedia: () => `Looked up ${a.topic} on Wikipedia`,
+    get_news: () => a.topic ? `Checked the news on ${a.topic}` : "Checked the news", convert_currency: () => `Converted ${a.amount} ${a.from} to ${a.to}`,
+    calculate: () => `Worked out ${a.expression}`, read_calendar: () => "Read your calendar", find_contact: () => `Looked up ${a.name} in your contacts`}[name];
+  if (infoLabel) return infoLabel();
+  const mt = mcpTools.find(t => t.def.function.name === name);
+  if (mt) return `Used ${mt.server.name}: ${mt.tool.name.replace(/_/g, " ")}`;
+  if (name === "read_webpage") { try { return `Read ${new URL(a.url).hostname.replace(/^www\./, "")}`; } catch (e) { return "Read a web page"; } }
+  return name.replace(/_/g, " ");
+}
+const arts = {};
+function artifactCard(a) {
+  arts[a.id] = a;
+  const kind = {html: ["globe", "Web page"], svg: ["image", "Drawing"], markdown: ["doc", "Document"], code: ["code", "Code"]}[a.kind] || ["doc", "File"];
+  return `<button class="artifact" onclick="openArt(arts['${a.id}'])"><span class="badge">${icon(kind[0])}</span>
+    <span><b>${esc(a.title)}</b><small>${kind[1]}${a.version > 1 ? ` · version ${a.version}` : ""}</small></span>${icon("chev").replace('class="i"', 'class="i chev"')}</button>`;
+}
+function editMessage(i) {
+  const m = chat.messages[i]; $("input").value = m.content; attachments = m.attachments || []; renderAttachments();
+  $("input").dataset.edit = i; autosize(); $("input").focus(); toast("Editing. Sending replaces this message and the replies after it.");
+}
+
+// ------------------------------------------------ sending
+
+function keydown(e) { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(min-width: 900px)").matches) { e.preventDefault(); send(); } }
+function autosize() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 180) + "px"; }
+async function attach(files) {
+  for (const f of files) {
+    try {
+      if (/^image\//.test(f.type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(f.name)) attachments.push({name: f.name, image: await shrinkPhoto(f)});
+      else if (/\.pdf$/i.test(f.name)) { setStatus(`Reading ${f.name}...`); attachments.push({name: f.name, text: await pdfText(f)}); }
+      else if (/\.docx$/i.test(f.name)) attachments.push({name: f.name, text: await docxText(f)});
+      else {
+        if (f.size > 20e6) { toast(`${f.name} is too big (over 20 MB).`); continue; }
+        const text = await f.text();
+        if (text.slice(0, 2000).includes("\u0000")) { toast(`${f.name} isn't a file the AI can read. Try text, code, PDF, Word or a photo.`); continue; }
+        attachments.push({name: f.name, text: text.slice(0, 2000000)});
+      }
+    } catch (e) { toast(`Couldn't read ${f.name}: ${e.message || e}`); }
+  }
+  setStatus(""); $("file").value = ""; renderAttachments();
+}
+// Photos are made smaller (longest side 1024) so chats stay small and the model is quick.
+function shrinkPhoto(f) {
+  return new Promise((done, fail) => {
+    const img = new Image(), url = URL.createObjectURL(f);
+    img.onload = () => {
+      const k = Math.min(1, 1024 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      done(c.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = () => fail(new Error("not a photo this device can open"));
+    img.src = url;
+  });
+}
+// PDF text, with pdf.js (shipped next to this page, loaded only when needed).
+async function pdfText(f) {
+  if (!window.pdfjsLib) await new Promise((ok, fail) => { const s = document.createElement("script"); s.src = "pdfjs/pdf.min.js"; s.onload = ok; s.onerror = () => fail(new Error("the PDF reader is missing")); document.head.appendChild(s); });
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "pdfjs/pdf.worker.min.js";
+  const doc = await pdfjsLib.getDocument({data: await f.arrayBuffer()}).promise, pages = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 300); i++) {
+    const t = await (await doc.getPage(i)).getTextContent();
+    pages.push(t.items.map(it => it.str + (it.hasEOL ? "\n" : " ")).join("").replace(/[ \t]+/g, " ").trim());
+  }
+  const text = pages.map((p, i) => `[Page ${i + 1}]\n${p}`).join("\n\n");
+  if (text.replace(/\[Page \d+\]/g, "").trim().length < 20) throw new Error("it has no text in it (a scanned PDF). Try a photo of the page with the Vision model.");
+  return text;
+}
+// Word (.docx) text: the document is a zip with the words in word/document.xml.
+async function docxText(f) {
+  const xml = await unzipFile(await f.arrayBuffer(), "word/document.xml");
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  return [...doc.getElementsByTagName("w:p")].map(p => [...p.getElementsByTagName("w:t")].map(t => t.textContent).join("")).join("\n").trim();
+}
+async function unzipFile(buf, wanted) {
+  const v = new DataView(buf), bytes = new Uint8Array(buf);
+  let e = buf.byteLength - 22;
+  while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("it isn't a proper Word file");
+  let p = v.getUint32(e + 16, true);
+  for (let i = 0; i < v.getUint16(e + 10, true); i++) {
+    const method = v.getUint16(p + 10, true), size = v.getUint32(p + 20, true), nameLen = v.getUint16(p + 28, true);
+    const extra = v.getUint16(p + 30, true), comment = v.getUint16(p + 32, true), local = v.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    if (name === wanted) {
+      const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true), data = bytes.subarray(start, start + size);
+      if (method === 0) return new TextDecoder().decode(data);
+      const out = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(out).text();
+    }
+    p += 46 + nameLen + extra + comment;
+  }
+  throw new Error("it has no text in it");
+}
+// A very long paste becomes an attachment, so the message box stays usable.
+function pasted(e) {
+  const t = e.clipboardData?.getData("text") || "";
+  if (t.length < 3000) return;
+  e.preventDefault();
+  attachments.push({name: `Pasted text (${t.length.toLocaleString()} characters)`, text: t});
+  renderAttachments();
+}
+function renderAttachments() {
+  $("attachments").innerHTML = attachments.map((a, i) => `<span class="file">${a.image ? `<img src="${a.image}" alt="">` : ""}${esc(a.name)}<button onclick="attachments.splice(${i}, 1); renderAttachments()" aria-label="Remove">${icon("close", "width:16px;height:16px")}</button></span>`).join("");
+}
+// Messages sent while a reply is being written wait here and go in order.
+let queue = [];
+function renderQueue() {
+  $("queued").innerHTML = queue.map((q, i) => `<div class="q"><span>Waiting to send: ${esc(q.text || q.attachments[0]?.name || "")}</span>
+    <button onclick="queue.splice(${i}, 1); renderQueue()" aria-label="Don't send">${icon("close", "width:16px;height:16px")}</button></div>`).join("");
+}
+function sendNextQueued(stoppedChat) {
+  if (stoppedChat) queue = queue.filter(q => q.chatId !== stoppedChat);  // Stop means stop
+  const next = queue.shift(); renderQueue();
+  if (!next) return;
+  const c = Store.getChat(next.chatId);
+  if (!c) return sendNextQueued();
+  startJob(c, {text: next.text, attachments: next.attachments, style: settings.style, think: settings.think}).then(() => {
+    if (chat && chat.id === c.id) { chat = Store.getChat(c.id) || c; renderChat(); renderOpts(); startLive(); }
+  }, e => toast(e.message));
+}
+async function send(extra = {}) {
+  const text = $("input").value.trim();
+  if (!extra.regenerate && !text && !attachments.length) return;
+  if (!chat) { chat = Store.newChat(project, currentAgent()); window.nextAgent = null; }
+  if (job && $("input").dataset.edit !== undefined && !extra.regenerate) { toast("Wait for the reply to finish, or press Stop, then send your edit."); return; }
+  if (job && !extra.regenerate) {
+    queue.push({chatId: chat.id, text, attachments});
+    $("input").value = ""; attachments = []; renderAttachments(); autosize(); renderQueue();
+    return;
+  }
+  const body = {text, attachments, style: settings.style, think: settings.think, ...extra};
+  if ($("input").dataset.edit !== undefined && !extra.regenerate) { body.edit_index = +$("input").dataset.edit; delete $("input").dataset.edit; }
+  try { await startJob(chat, body); } catch (e) { toast(e.message); return; }
+  $("input").value = ""; attachments = []; renderAttachments(); autosize(); $("input").blur();
+  renderChat(); renderOpts(); startLive();
+}
+function regenerate() { send({regenerate: true}); }
+function stopJob() { if (job) job.controller.abort(); }
+
+// ------------------------------------------------ live updates while a reply is written
+
+function emit(ev) { onEvent(ev); }
+function startLive() { live = {el: document.createElement("div"), subs: {}, current: null, raw: ""}; live.el.className = "msg ai"; $("chat").appendChild(live.el); }
+function liveTarget(sub) {
+  if (!sub) return live.el;
+  if (!live.subs[sub]) {
+    const box = document.createElement("div"); box.className = "agentbox";
+    box.innerHTML = step("person", "Asking another agent...", "", "", true).replace("<details", "<details open");
+    live.el.appendChild(box); live.subs[sub] = box.querySelector(".detail");
+    live.subs[sub].label = box.querySelector(".txt");
+  }
+  return live.subs[sub];
+}
+function liveStep(sub, id, label, iconName) {
+  const d = document.createElement("div");
+  d.innerHTML = step(iconName, label, "Working...").replace("<details", `<details id="t_${id}"`);
+  const el = d.firstElementChild; liveTarget(sub).appendChild(el);
+  el.querySelector(".txt").insertAdjacentHTML("afterend", `<span class="live-dot"></span>`);
+}
+function onEvent(ev) {
+  if (!chat || ev.chat !== chat.id) return;
+  if (ev.type === "status") { setStatus(ev.text); return; }
+  if (!live && ["assistant_start", "token", "tool_call", "agent_start", "artifact"].includes(ev.type)) startLive();
+  const box = $("chat");
+  if (ev.type === "assistant_start") {
+    live.current = document.createElement("div"); live.current.className = "md cursor"; live.raw = ""; liveTarget(ev.sub).appendChild(live.current); setStatus("");
+  } else if (ev.type === "token" && live.current) {
+    live.raw += ev.text;
+    live.current.innerHTML = md(live.raw.replace(/<think>[\s\S]*?(<\/think>|$)/g, m => m.includes("</think>") ? "" : "_Thinking it through..._"));
+  } else if (ev.type === "assistant_end" && live.current) {
+    live.current.classList.remove("cursor"); if (!ev.message.content) live.current.remove();
+  } else if (ev.type === "tool_call") {
+    if (ev.name !== "create_artifact" && ev.name !== "ask_agent") liveStep(ev.sub, ev.id, toolLabel(ev.name, ev.args), toolIcon(ev.name));
+  } else if (ev.type === "tool_result") {
+    const d = $("t_" + ev.id); if (d) { d.querySelector(".detail").textContent = ev.result; d.querySelector(".live-dot")?.remove(); }
+  } else if (ev.type === "agent_start") {
+    liveTarget(ev.id).label.textContent = `Asked ${ev.agent}`;
+  } else if (ev.type === "agent_end") {
+    const t = live.subs[ev.id]; if (t) t.closest("details").open = false;
+  } else if (ev.type === "artifact") {
+    const d = document.createElement("div"); d.innerHTML = artifactCard(ev.artifact); live.el.appendChild(d.firstElementChild); openArt(ev.artifact);
+  } else if (ev.type === "error") {
+    lastError = ev.text;
+    const d = document.createElement("div"); d.className = "msg note"; d.textContent = ev.text; box.appendChild(d);
+  } else if (ev.type === "done") {
+    live = null; setStatus(""); const notes = [...box.querySelectorAll(".msg.note")].map(e => e.textContent);
+    chat = Store.getChat(chat.id); renderChat(); renderOpts();
+    notes.forEach(t => { const d = document.createElement("div"); d.className = "msg note"; d.textContent = t; box.appendChild(d); });
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+// ------------------------------------------------ full screen view for finished work
+
+function openArt(a) { currentArt = a; $("panel").classList.add("open"); $("artTitle").textContent = a.title; artTab(a.kind === "code" ? "code" : "preview"); }
+function closePanel() { $("panel").classList.remove("open"); currentArt = null; }
+function artTab(mode) {
+  const a = currentArt; if (!a) return;
+  $("tabPreview").classList.toggle("on", mode === "preview"); $("tabCode").classList.toggle("on", mode === "code");
+  $("tabPreview").parentElement.hidden = a.kind === "code";
+  const body = $("artBody");
+  if (mode === "code" || a.kind === "code") { body.innerHTML = codeBlock(a.content, a.language || a.kind).replace('class="codeblock"', 'class="codeblock" style="margin:0;border-radius:0;min-height:100%"'); return; }
+  if (a.kind === "markdown") { body.innerHTML = `<div class="md">${md(a.content)}</div>`; return; }
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
+  $("saveVideoBtn").hidden = !isVideo(a);
+  frame.srcdoc = isVideo(a) ? a.content + VIDEO_RECORDER : a.kind === "svg" ? `<body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh">${a.content}</body>` : a.content;
+  body.innerHTML = ""; body.appendChild(frame);
+}
+// Video maker pages draw on <canvas id="video">. Saving records that canvas inside the
+// page (it's sandboxed, so this page can't reach in) and sends the file back here.
+const isVideo = a => a.kind === "html" && /<canvas[^>]*id=["']video["']/.test(a.content);
+const VIDEO_RECORDER = `<script>addEventListener("message", e => {
+  if (e.data !== "record") return;
+  const c = document.getElementById("video"), secs = Math.min(+c.dataset.seconds || 8, 60);
+  const type = ["video/mp4", "video/webm;codecs=vp9", "video/webm"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
+  if (!type || !c.captureStream) { parent.postMessage({videoError: "This device can't record video."}, "*"); return; }
+  const rec = new MediaRecorder(c.captureStream(30), {mimeType: type, videoBitsPerSecond: 6e6}), parts = [];
+  rec.ondataavailable = ev => parts.push(ev.data);
+  rec.onstop = () => { const r = new FileReader(); r.onload = () => parent.postMessage({video: r.result, type: rec.mimeType}, "*"); r.readAsDataURL(new Blob(parts, {type: rec.mimeType})); };
+  rec.start(); setTimeout(() => rec.stop(), secs * 1000);
+});<\/script>`;
+function saveVideo() {
+  const frame = document.querySelector("#artBody iframe");
+  if (!frame) return;
+  const secs = +((currentArt.content.match(/data-seconds=["']?(\d+)/) || [])[1] || 8);
+  toast(`Recording the video (${secs} seconds)...`);
+  frame.contentWindow.postMessage("record", "*");
+}
+addEventListener("message", async e => {
+  if (!e.data || !(e.data.video || e.data.videoError) || !currentArt) return;
+  if (e.data.videoError) return toast(e.data.videoError);
+  const ext = e.data.type.includes("mp4") ? "mp4" : "webm";
+  try { toast("Saved to " + await bridge("saveDownload", {name: `${currentArt.title}.${ext}`, content: e.data.video.split(",")[1], mime: e.data.type.split(";")[0], base64: true})); }
+  catch (err) { toast("Couldn't save: " + err.message); }
+});
+async function saveArt() {
+  const a = currentArt, ext = {html: "html", svg: "svg", markdown: "md"}[a.kind] || "txt";
+  const mime = {html: "text/html", svg: "image/svg+xml", markdown: "text/markdown"}[a.kind] || "text/plain";
+  try { toast("Saved to " + await bridge("saveDownload", {name: `${a.title}.${ext}`, content: a.content, mime})); } catch (e) { toast(e.message); }
+}
+
+// ------------------------------------------------ sheets
+
+function sheet(html, onReady) {
+  closeSheet();
+  const bg = document.createElement("div"); bg.className = "sheet-bg";
+  bg.innerHTML = `<div class="sheet"><div class="grab"></div>${html}</div>`;
+  bg.onclick = e => { if (e.target === bg) closeSheet(); };
+  document.body.appendChild(bg); if (onReady) onReady(bg); return bg;
+}
+function closeSheet() { document.querySelector(".sheet-bg")?.remove(); }
+const toggle = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span></span></label>`;
+
+// Agent, model, style and think first, all in one place.
+function showOptions() {
+  const agents = allAgents(), agent = currentAgent(), ready = installed();
+  const rows = (items, current, fn) => `<div class="list">${items.map(([k, title, sub]) => `<button class="item ${k === current ? "on" : ""}" onclick="${fn}('${k}')">
+      <span class="grow">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ""}</span>${icon("check").replace('class="i"', 'class="i tick"')}</button>`).join("")}</div>`;
+  const firstLine = s => (s || "").split(/(?<=\.)\s/)[0];
+  sheet(`<h2>Options</h2>
+    <h3>Agent</h3>${rows(Object.entries(agents).map(([k, a]) => [k, a.name, a.blurb || firstLine(a.instructions)]), agent, "pickAgent")}
+    <h3>Model</h3>${rows([["auto", "Auto", "Picks the right model for each message"], ...ready.map(k => [k, CATALOG[k].label, CATALOG[k].detail])], ready.includes(settings.model) ? settings.model : "auto", "pickModel")}
+    <h3>Style</h3>${rows(Object.keys(STYLES).map(s => [s, s[0].toUpperCase() + s.slice(1), ""]), settings.style, "pickStyle")}
+    <h3>Also on the web</h3><div class="list">${Object.entries(WEBSITES).map(([k, w]) => `<button class="item" onclick="B.openWebsite('${k}')">
+      <span class="grow">${w.name}<small>Opens ${w.host} with your own free account</small></span>${icon("chev").replace('class="i"', 'class="i chev" style="color:var(--faint)"')}</button>`).join("")}</div>
+    <p class="sub" style="margin:8px 4px 0">These open the company's own website. Your agents, memory and schedules only work with the models on this phone.</p>
+    <h3>Reasoning</h3><div class="list"><label class="item"><span class="grow">Think first<small>Slower, but better on tricky questions</small></span>${toggle("think", settings.think)}</label></div>
+    <div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`, bg => {
+    bg.querySelector("#think").onchange = e => { saveSettings({think: e.target.checked}); renderMode(); };
+  });
+}
+function pickAgent(k) { if (chat) setChatField("agent", k); else window.nextAgent = k; renderMode(); showOptions(); }
+function pickModel(k) { saveSettings({model: k}); renderMode(); showOptions(); }
+function pickStyle(k) { saveSettings({style: k}); renderMode(); showOptions(); }
+
+const downloads = {};
+function onBridgeEvent(ev) {
+  if (ev.type === "stop") { stopJob(); return; }
+  if (ev.type !== "download") return;
+  downloads[ev.key] = ev;
+  if (ev.status === "done") { delete downloads[ev.key]; renderOpts(); if (!chat || !chat.messages.length) renderChat(); }
+  if (ev.status === "cancelled") delete downloads[ev.key];
+  if ($("modelsList")) drawModels();
+}
+function drawModels() {
+  const files = JSON.parse(B.models() || "{}"), ramGb = B.memory() / 1e9, builtIn = JSON.parse(B.builtInModels ? B.builtInModels() : "[]");
+  let lastMaker = "";
+  // Desk OS has its model built into the disk and can't add more, so it only lists that one.
+  const deskOS = !window.Android && builtIn.length;
+  $("modelsList").innerHTML = Object.entries(CATALOG).filter(([k]) => !deskOS || builtIn.includes(k)).map(([k, m]) => {
+    const heading = m.maker !== lastMaker ? `<div class="maker">${esc(m.maker)}</div>` : ""; lastMaker = m.maker;
+    const dl = downloads[k], ready = !!files[k];
+    let action;
+    if (window.__deskIPad) action = engineModel === k ? `<span class="ready">In use</span>` : `<button class="tonal" onclick="useModel('${k}')">Use</button>`;
+    else if (builtIn.includes(k)) action = `<span class="ready">Built in</span>`;
+    else if (ready) action = `<span class="ready">Ready</span><button class="icon-btn" onclick="delModel('${k}')" aria-label="Delete">${icon("trash", "width:19px;height:19px")}</button>`;
+    else if (dl && !dl.status) action = `<span class="meta">${dl.total ? Math.round(100 * dl.done / dl.total) + "%" : "Starting"}</span><button class="tonal" onclick="B.cancelDownload('${k}')">Stop</button>`;
+    else action = `<button class="filled" onclick="getModel('${k}')">${dl && dl.status === "error" ? "Retry" : dl && dl.done ? "Resume" : "Get"}</button>`;
+    const bar = dl && !dl.status && dl.total ? `<div class="progress"><div style="width:${100 * dl.done / dl.total}%"></div></div>` : "";
+    const err = dl && dl.status === "error" ? `<small class="note">${esc(dl.error)}</small>` : "";
+    const warn = m.size_gb * 2.2 > ramGb ? `<small class="note">May be too big for this phone's memory.</small>` : "";
+    return `${heading}<div class="item card"><span class="grow">${m.label} <span class="meta">${m.detail} \u00b7 ${m.size_gb} GB</span><small>${m.about}</small>${warn}${err}${bar}</span><span class="actions">${action}</span></div>`;
+  }).join("");
+}
+function useModel(k) {
+  saveSettings({model: k}); closeSheet();
+  toast(`Switching to ${CATALOG[k].label}. It loads with your next message.`);
+  renderOpts();
+}
+function showModels() {
+  const intro = window.__deskIPad ? "Each model downloads the first time you use it (over Wi-Fi), then works offline. Bigger ones are cleverer but slower."
+    : !window.Android && JSON.parse(B.builtInModels()).length ? "This model is built in and works offline."
+    : `Free models from different makers. Download once over Wi-Fi (it carries on with the screen off or the app closed), then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.`;
+  sheet(`<h2>Models</h2><p class="sub">${intro}</p>
+    <div class="list" id="modelsList"></div><div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
+  drawModels();
+}
+function getModel(k) {
+  const m = CATALOG[k];
+  if (m.size_gb * 1.1e9 > B.freeSpace()) { toast("There isn't enough free space on the phone for this model."); return; }
+  downloads[k] = {done: 0, total: 0};
+  bridge("download", {key: k, repo: m.repo, quant: m.quant, mmproj: m.mmproj || ""}).catch(e => { downloads[k] = {status: "error", error: e.message}; drawModels(); });
+  drawModels();
+}
+function delModel(k) {
+  if (!confirm("Delete this model from the phone? You can download it again later.")) return;
+  B.deleteModel(k); if (engineModel === k) { engineModel = null; enginePort = 0; }
+  drawModels(); renderOpts();
+}
+
+const GROUP_LABELS = {web: ["Search the web", "Look things up and read pages"], artifacts: ["Make pages and documents", "Shows finished work full screen"], delegate: ["Ask other agents", "Hands parts of a job to the others"], phone: ["Use the phone's apps", "Reads the screen, taps and types for you"]};
+function showAgents() {
+  const custom = customAgents();
+  sheet(`<h2>Agents</h2><p class="sub">Each agent has its own instructions and tools. Assistant and Planner can ask the others for help.</p>
+    <div class="list">${Object.entries(allAgents()).map(([k, a]) => `<div class="item"><span class="grow">${esc(a.name)}${custom[k] ? ` <span class="meta">yours</span>` : ""}<small>${esc(a.blurb || a.instructions.split(/(?<=\.)\s/)[0])}</small></span>
+      <span class="actions">${custom[k] ? `<button class="text" onclick="editAgent('${k}')">Edit</button>` : `<button class="text" onclick="editAgent('${k}', true)">Copy</button>`}<button class="text" onclick="useAgent('${k}')">Chat</button></span></div>`).join("")}</div>
+    <div class="buttons"><button class="tonal left" onclick="editAgent()">New agent</button><button class="text" onclick="closeSheet()">Done</button></div>`);
+}
+function editAgent(key, copy) {
+  const a = key ? allAgents()[key] : {name: "", instructions: "", tools: ["web"], model: "auto"};
+  const isEdit = key && !copy;
+  sheet(`<h2>${isEdit ? "Edit agent" : "New agent"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="agName" value="${esc(copy ? a.name + " copy" : a.name)}" placeholder="For example: Chef"></div>
+    <div class="field"><label>Instructions</label><textarea id="agInstr" rows="5" placeholder="Who it is and how it should work">${esc(a.instructions)}</textarea></div>
+    <div class="field"><label>Model</label><select id="agModel">${[["auto", "Auto"], ...Object.entries(CATALOG).map(([k, m]) => [k, m.label])].map(([k, l]) => `<option value="${k}" ${a.model === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="field"><label>Tools</label><div class="list checks">${Object.entries(GROUP_LABELS).map(([g, [t, s]]) => `<label class="item"><span class="grow">${t}<small>${s}</small></span>${toggle("tool-" + g, a.tools.includes(g)).replace("<input", `<input value="${g}"`)}</label>`).join("")}</div></div>
+    <div class="buttons">${isEdit ? `<button class="danger left" onclick="delAgent('${key}')">Delete</button>` : ""}<button class="text" onclick="showAgents()">Cancel</button><button class="filled" id="agSave">Save</button></div>`, bg => {
+    bg.querySelector("#agSave").onclick = () => {
+      const name = $("agName").value.trim() || "My agent", agents = customAgents();
+      let id = isEdit ? key : name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "agent";
+      if (!isEdit && (BUILTIN_AGENTS[id] || agents[id])) id += "-" + uid().slice(0, 4);
+      agents[id] = {name, instructions: $("agInstr").value, model: $("agModel").value, tools: [...bg.querySelectorAll(".checks input:checked")].map(i => i.value)};
+      writeJSON("agents.json", agents); renderOpts(); showAgents();
+    };
+  });
+}
+function delAgent(k) { if (!confirm("Delete this agent?")) return; const a = customAgents(); delete a[k]; writeJSON("agents.json", a); renderOpts(); showAgents(); }
+function useAgent(k) { closeSheet(); window.nextAgent = k; chat = null; newChat(); }
+
+function editProject(id) {
+  closeDrawer();
+  const p = id ? Store.getProject(id) : {name: "", instructions: "", files: []};
+  const files = [...(p.files || [])];
+  const draw = () => $("prFiles").innerHTML = files.map((f, i) => `<span class="file">${esc(f.name)}<button onclick="window.prRemove(${i})" aria-label="Remove">${icon("close", "width:16px;height:16px")}</button></span>`).join("");
+  window.prRemove = i => { files.splice(i, 1); draw(); };
+  sheet(`<h2>${id ? "Edit project" : "New project"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="prName" value="${esc(p.name)}" placeholder="For example: Cornwall trip"></div>
+    <div class="field"><label>Instructions for every chat in this project</label><textarea id="prInstr" rows="4" placeholder="For example: we're going in May with the dog.">${esc(p.instructions)}</textarea></div>
+    <div class="field"><label>Files the AI reads in every chat</label><div class="files" id="prFiles"></div>
+      <button class="tonal" style="margin-top:8px" onclick="$('prFileInput').click()">Add text files</button><input type="file" id="prFileInput" multiple hidden></div>
+    <div class="buttons">${id ? `<button class="danger left" onclick="delProject('${id}')">Delete</button>` : ""}<button class="text" onclick="closeSheet()">Cancel</button><button class="filled" id="prSave">Save</button></div>`, bg => {
+    draw();
+    bg.querySelector("#prFileInput").onchange = async e => { for (const f of e.target.files) { const t = await f.text(); if (!t.slice(0, 2000).includes("\u0000")) files.push({name: f.name, text: t.slice(0, 200000)}); } draw(); };
+    bg.querySelector("#prSave").onclick = () => {
+      const saved = {id: id || uid(), name: $("prName").value.trim() || "New project", instructions: $("prInstr").value, files};
+      Store.saveProject(saved); closeSheet(); if (id) renderSide(); else pickProject(saved.id);
+    };
+  });
+}
+function delProject(id) { if (!confirm("Delete this project? Its chats are kept.")) return; Store.deleteProject(id); project = null; closeSheet(); renderSide(); }
+
+function showMemory() {
+  sheet(`<h2>Memory</h2><p class="sub">What Desk Agent has learned about you. It's used in every chat. Edit or clear it any time.</p>
+    <textarea id="memText" rows="10" placeholder="Nothing yet. It fills in as you chat.">${esc(readMemory())}</textarea>
+    <div class="buttons"><button class="danger left" onclick="$('memText').value=''">Clear</button><button class="text" onclick="closeSheet()">Cancel</button><button class="filled" id="memSave">Save</button></div>`, bg => {
+    bg.querySelector("#memSave").onclick = () => { B.write("memory.txt", $("memText").value); closeSheet(); toast("Memory saved"); };
+  });
+}
+function showSettings() {
+  sheet(`<h2>Settings</h2>
+    <div class="list">
+      <label class="item"><span class="grow">Learn from my chats<small>Remembers things about you and uses them in new chats</small></span>${toggle("seLearn", settings.learn)}</label>
+      <div class="item"><span class="grow">Chat length<small>Longer remembers more of a chat but is slower</small></span>
+        <select id="seCtx" style="width:auto">${[[4096, "Short"], [8192, "Normal"], [16384, "Long"]].map(([n, l]) => `<option value="${n}" ${settings.context === n ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+      <div class="item"><span class="grow">Steps per reply<small>How many searches or actions it can take</small></span>
+        <select id="seSteps" style="width:auto">${[6, 12, 20].map(n => `<option ${settings.max_steps === n ? "selected" : ""}>${n}</option>`).join("")}</select></div>
+    </div>
+    <p class="sub" style="margin-top:14px">Everything stays on this phone. Uninstalling the app deletes it.</p>
+    <div class="buttons"><button class="text" onclick="closeSheet()">Cancel</button><button class="filled" id="seSave">Save</button></div>`, bg => {
+    bg.querySelector("#seSave").onclick = () => {
+      const ctx = +$("seCtx").value;
+      if (ctx !== settings.context) { engineModel = null; enginePort = 0; bridge("stopEngine"); }
+      saveSettings({context: ctx, max_steps: +$("seSteps").value, learn: $("seLearn").checked}); closeSheet(); toast("Saved");
+    };
+  });
+}
+
+// ------------------------------------------------ using the phone's apps
+
+const PHONE_TOOLS = {
+  read_screen: () => "Looked at the screen",
+  open_app: a => `Opened ${a.name}`,
+  tap: a => `Tapped item ${a.item}`,
+  type_text: a => `Typed “${String(a.text || "").slice(0, 40)}”`,
+  scroll: a => `Scrolled ${a.direction}`,
+  press: a => `Pressed ${a.button}`,
+  list_apps: () => "Checked which apps are installed",
+};
+let phoneSession = false;
+async function phoneTool(c, name, a) {
+  if (B.isBackground()) throw new Error("Phone control can't be used in scheduled chats.");
+  if (!B.phoneEnabled()) { askPhoneSetup(); throw new Error("Phone control is switched off. The user is being shown how to turn it on. Stop and tell them to try again once it's on."); }
+  if (!c.phone_ok) {
+    if (!(await askPhoneConsent())) throw new Error("The user said no to using the phone in this chat. Stop and ask what they'd like instead.");
+    c.phone_ok = true; Store.saveChat(c);
+  }
+  if (!phoneSession) { B.keepAlive(true); phoneSession = true; }
+  const calls = {read_screen: ["phoneRead", {}], open_app: ["phoneOpen", {name: a.name}], tap: ["phoneTap", {item: +a.item}],
+    type_text: ["phoneType", {text: a.text, item: +(a.item || 0)}], scroll: ["phoneScroll", {direction: a.direction, item: +(a.item || 0)}],
+    press: ["phonePress", {button: a.button}], list_apps: ["phoneApps", {}]};
+  const [method, args] = calls[name];
+  return String(await bridge(method, args));
+}
+function askPhoneConsent() {
+  return new Promise(resolve => {
+    sheet(`<h2>Use your phone?</h2>
+      <p class="sub">For this chat, Desk Agent wants to read your screen and tap, type and open apps for you. You'll see a notification with a Stop button while it works, and it will ask before sending, buying or deleting anything.</p>
+      <div class="buttons"><button class="text" id="pcNo">Not now</button><button class="filled" id="pcYes">Allow for this chat</button></div>`, bg => {
+      bg.onclick = null;
+      bg.querySelector("#pcYes").onclick = () => { closeSheet(); resolve(true); };
+      bg.querySelector("#pcNo").onclick = () => { closeSheet(); resolve(false); };
+    });
+  });
+}
+function askPhoneSetup() {
+  const draw = () => sheet(`<h2>Turn on phone control</h2>
+    <p class="sub">Android needs your permission before any app can use other apps for you. It's done once.</p>
+    <div class="list">
+      <div class="item"><span class="grow">1. Open Accessibility settings<small>Then tap Desk Agent phone control, switch it on, and tap Allow.</small></span><button class="tonal" onclick="B.openPhoneSettings()">Open</button></div>
+      <div class="item"><span class="grow">2. If it's greyed out<small>Android blocks this for apps not from the Play Store until you allow it: Settings, Apps, Desk Agent, then the three dots at the top, then Allow restricted settings. Then do step 1 again.</small></span></div>
+    </div>
+    <p class="sub" style="margin-top:14px">${B.phoneEnabled() ? "Phone control is on. Send your message again." : "Status: off"}</p>
+    <div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
+  window.__sheetRedraw = () => { if (document.querySelector(".sheet-bg")) draw(); };
+  draw();
+}
+
+// ------------------------------------------------ scheduled chats
+
+const REPEATS = {daily: "Every day", weekdays: "Weekdays", weekly: "Every week", once: "Once"};
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+function schedules() { return readJSON("schedules.json", []); }
+function saveSchedules(list) { writeJSON("schedules.json", list); B.schedulesChanged(); }
+// When a schedule should next run, in milliseconds, or 0 for never.
+function nextRun(s, from = Date.now()) {
+  if (!s.enabled) return 0;
+  if (s.repeat === "once") { const t = new Date(`${s.date}T${s.time}`).getTime(); return t > from ? t : 0; }
+  const [h, m] = (s.time || "07:00").split(":").map(Number);
+  for (let i = 0; i < 9; i++) {
+    const t = new Date(from); t.setDate(t.getDate() + i); t.setHours(h, m, 0, 0);
+    const wd = t.getDay();
+    if (t.getTime() <= from || (s.repeat === "weekdays" && (wd === 0 || wd === 6)) || (s.repeat === "weekly" && wd !== +s.day)) continue;
+    return t.getTime();
+  }
+  return 0;
+}
+function describeSchedule(s) {
+  if (s.kind === "reminder") return `Reminder · ${new Date(`${s.date}T${s.time}`).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"})} at ${s.time}`;
+  if (s.repeat === "once") return `${new Date(`${s.date}T${s.time}`).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"})} at ${s.time}`;
+  if (s.repeat === "weekly") return `${DAYS[+s.day]}s at ${s.time}`;
+  return `${REPEATS[s.repeat]} at ${s.time}`;
+}
+function nextText(s) {
+  const t = s.enabled ? s.next_run : 0;
+  return t ? "Next " + new Date(t).toLocaleString("en-GB", {weekday: "short", hour: "2-digit", minute: "2-digit"}) : s.enabled ? "Finished" : "Paused";
+}
+function scheduleChat(s, list) {
+  let c = s.chat_id && Store.getChat(s.chat_id);
+  if (!c) {
+    c = Store.newChat(null, s.agent || "assistant"); c.title = s.title; c.scheduled = s.id; Store.saveChat(c);
+    s.chat_id = c.id; saveSchedules(list);
+  }
+  return c;
+}
+function showSchedules() {
+  const draw = () => {
+    const list = schedules();
+    const warn = [];
+    if (!B.exactAlarmsAllowed()) warn.push(`<div class="item"><span class="grow">Allow on time alarms<small>Without this, scheduled chats can run late.</small></span><button class="tonal" onclick="B.openAlarmSettings()">Allow</button></div>`);
+    if (!B.notificationsAllowed()) warn.push(`<div class="item"><span class="grow">Allow notifications<small>So you hear when a scheduled chat has an answer.</small></span><button class="tonal" onclick="B.askForNotifications()">Allow</button></div>`);
+    sheet(`<h2>Scheduled</h2><p class="sub">Chats and reminders that run on their own. You get a notification.</p>
+      ${warn.length ? `<div class="list" style="margin-bottom:12px">${warn.join("")}</div>` : ""}
+      <div class="list">${list.map(x => `<div class="item"><span class="grow" onclick="editSchedule('${x.id}')" style="cursor:pointer">${esc(x.title)}<small>${describeSchedule(x)} · ${nextText(x)}</small></span>
+        ${toggle("sch-" + x.id, x.enabled).replace("<input", `<input onchange="toggleSchedule('${x.id}', this.checked)"`)}</div>`).join("")
+        }${list.some(x => x.title === BRIEFING.title) ? "" : `<div class="item"><span class="grow">Daily briefing<small>Weather and news at 07:30</small></span><button class="text" onclick="addBriefing()">Add</button></div>`}</div>
+      <div class="buttons"><button class="tonal left" onclick="editSchedule()">New</button><button class="text" onclick="closeSheet()">Done</button></div>`);
+  };
+  window.__sheetRedraw = () => { if (document.querySelector(".sheet-bg")) draw(); };
+  draw();
+}
+function toggleSchedule(id, on) {
+  const list = schedules(), s = list.find(x => x.id === id);
+  s.enabled = on; s.next_run = nextRun(s); saveSchedules(list); showSchedules();
+}
+function editSchedule(id) {
+  const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+  const s = id ? schedules().find(x => x.id === id) : {title: "", prompt: "", repeat: "daily", time: "07:00", day: 1, date: tomorrow, agent: "assistant", enabled: true};
+  const agents = Object.entries(allAgents()).filter(([k]) => k !== "phone");
+  const show = () => { const r = $("scRepeat").value; $("scDayField").hidden = r !== "weekly"; $("scDateField").hidden = r !== "once"; };
+  sheet(`<h2>${id ? "Edit scheduled chat" : "New scheduled chat"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="scTitle" value="${esc(s.title)}" placeholder="For example: Morning briefing"></div>
+    <div class="field"><label>What to ask</label><textarea id="scPrompt" rows="4" placeholder="For example: Search for today's weather in Enfield and the top UK news, and give me a short summary.">${esc(s.prompt)}</textarea></div>
+    <div class="field"><label>When</label><select id="scRepeat">${Object.entries(REPEATS).map(([k, l]) => `<option value="${k}" ${s.repeat === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="field" id="scDayField"><label>Day</label><select id="scDay">${DAYS.map((d, i) => `<option value="${i}" ${+s.day === i ? "selected" : ""}>${d}</option>`).join("")}</select></div>
+    <div class="field" id="scDateField"><label>Date</label><input type="date" id="scDate" value="${esc(s.date || tomorrow)}"></div>
+    <div class="field"><label>Time</label><input type="time" id="scTime" value="${esc(s.time)}"></div>
+    <div class="field"><label>Agent</label><select id="scAgent">${agents.map(([k, a]) => `<option value="${k}" ${s.agent === k ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>
+    <div class="buttons">${id ? `<button class="danger left" onclick="deleteSchedule('${id}')">Delete</button><button class="text" onclick="runScheduleNow('${id}')">Run now</button>` : ""}
+      <button class="text" onclick="showSchedules()">Cancel</button><button class="filled" id="scSave">Save</button></div>`, bg => {
+    show(); bg.querySelector("#scRepeat").onchange = show;
+    bg.querySelector("#scSave").onclick = () => {
+      const prompt = $("scPrompt").value.trim();
+      if (!prompt) { toast("Write what to ask first."); return; }
+      const list = schedules();
+      const item = id ? list.find(x => x.id === id) : {id: uid(), enabled: true, created: now()};
+      Object.assign(item, {title: $("scTitle").value.trim() || prompt.split(/\s+/).slice(0, 5).join(" "), prompt, repeat: $("scRepeat").value,
+        day: +$("scDay").value, date: $("scDate").value, time: $("scTime").value || "07:00", agent: $("scAgent").value});
+      item.next_run = nextRun(item);
+      if (!id) list.push(item);
+      saveSchedules(list);
+      if (!B.notificationsAllowed()) B.askForNotifications();
+      toast(item.next_run ? nextText(item) : "That time has already passed");
+      showSchedules();
+    };
+  });
+}
+function deleteSchedule(id) {
+  if (!confirm("Delete this scheduled chat? Its past answers stay in your chats.")) return;
+  saveSchedules(schedules().filter(x => x.id !== id)); showSchedules();
+}
+function runScheduleNow(id) {
+  const list = schedules(), s = list.find(x => x.id === id);
+  closeSheet(); openChat(scheduleChat(s, list).id);
+  $("input").value = s.prompt; send();
+}
+
+// Runs one scheduled chat in the hidden copy of this page that Android starts on time.
+async function runScheduled(id) {
+  const list = schedules(), s = list.find(x => x.id === id);
+  if (!s) { B.scheduledDone("", "Scheduled chat", "That scheduled chat no longer exists."); return; }
+  if (s.kind === "reminder") {
+    s.last_run = now(); s.enabled = false; s.next_run = 0; saveSchedules(list);
+    B.notify("reminder-" + s.id, "", "Reminder", s.prompt);
+    B.scheduledDone("", "", "");  // nothing more to do: lets the background runner stop
+    return;
+  }
+  // Work out the next run first, so a crash part way through can't make it repeat.
+  s.last_run = now();
+  if (s.repeat === "once") s.enabled = false;
+  s.next_run = nextRun(s, Date.now() + 60000);
+  saveSchedules(list);
+  chat = scheduleChat(s, list);
+  window.__scheduledRun = s;
+  try { await startJob(chat, {text: s.prompt, style: settings.style}); }
+  catch (e) { B.scheduledDone(chat.id, s.title, e.message); }
+}
+let lastError = "";
+function plainText(t) { return t.replace(/[#*_`>|]/g, "").replace(/\n{2,}/g, "\n").trim(); }
+function onJobDone(c, stopped) {
+  if (phoneSession) { phoneSession = false; B.keepAlive(false); B.bringToFront(); }
+  const s = window.__scheduledRun;
+  if (!s) {
+    // You asked, then left the app: ping when the answer is ready.
+    if (!stopped && !B.isBackground() && B.onScreen && !B.onScreen()) {
+      const last = [...c.messages].reverse().find(m => m.role === "assistant" && m.content);
+      if (last) B.notify("reply-" + c.id, c.id, c.title || "Desk Agent", "Your answer is ready: " + plainText(last.content).slice(0, 300));
+    }
+    return;
+  }
+  window.__scheduledRun = null;
+  const last = [...c.messages].reverse().find(m => m.role === "assistant" && m.content);
+  const plain = plainText(last ? last.content : lastError || "Finished, with no answer.");
+  B.scheduledDone(c.id, s.title, plain.slice(0, 700));
+}
+window.onResumeApp = () => { if (window.__sheetRedraw) window.__sheetRedraw(); renderSide(); };
+
+// ------------------------------------------------ reminders and the daily briefing
+
+function setReminder(a) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a.date) || !/^\d{1,2}:\d{2}$/.test(a.time)) return "ERROR: date must be YYYY-MM-DD and time HH:MM.";
+  const time = a.time.padStart(5, "0");
+  const item = {id: uid(), kind: "reminder", title: "Reminder: " + a.text, prompt: a.text, repeat: "once", date: a.date, time, enabled: true, created: now()};
+  item.next_run = nextRun(item);
+  if (!item.next_run) return `ERROR: ${a.date} ${time} has already passed. Check the current time above.`;
+  const list = schedules(); list.push(item); saveSchedules(list);
+  if (!B.notificationsAllowed()) B.askForNotifications();
+  return `Reminder set for ${new Date(item.next_run).toLocaleString("en-GB", {weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit"})}.`;
+}
+const BRIEFING = {title: "Daily briefing", repeat: "daily", time: "07:30", agent: "researcher",
+  prompt: "Give me my morning briefing. Start with today's date. Search the web for today's weather where I live (use what you know about me, or London if you don't know) and the top three UK news stories. Keep it short: a few lines each."};
+function addBriefing() {
+  const list = schedules();
+  const item = {...BRIEFING, id: uid(), enabled: true, created: now(), day: 1, date: ""};
+  if (!allAgents()[item.agent]) item.agent = "assistant";
+  item.next_run = nextRun(item); list.push(item); saveSchedules(list);
+  if (!B.notificationsAllowed()) B.askForNotifications();
+  toast("Daily briefing at 07:30. Tap it to change the time."); showSchedules();
+}
+
+// Desk OS and the browser have no alarms, so while the page is open it checks every
+// 30 seconds for a reminder or scheduled chat that is due.
+if (!window.Android) setInterval(() => {
+  const list = schedules(), due = list.filter(x => x.enabled && x.next_run && x.next_run <= Date.now());
+  for (const s of due) {
+    if (s.kind === "reminder") { s.enabled = false; s.next_run = 0; saveSchedules(list); B.notify("reminder-" + s.id, "", "Reminder", s.prompt); }
+    else if (!job) {
+      s.last_run = now(); s.next_run = nextRun(s, Date.now() + 60000); saveSchedules(list);
+      window.__scheduledRun = s; const c = scheduleChat(s, list); openChat(c.id);
+      startJob(c, {text: s.prompt, style: settings.style}).then(() => { renderChat(); startLive(); }, e => B.notify(s.id, c.id, s.title, e.message));
+    }
+  }
+}, 30000);
+
+// ------------------------------------------------ connectors (MCP servers)
+// Each connector is an MCP server at a web address (Streamable HTTP), with an
+// optional key. Its tools are offered to the AI in the main chat.
+
+let mcpTools = [];          // [{server, tool, def}]
+const mcpSessions = {};     // server id -> {session, at}
+const MCP_VERSION = "2025-06-18", MCP_TOOL_LIMIT = 24;
+function connectors() { return readJSON("connectors.json", []); }
+function saveConnectors(list) { writeJSON("connectors.json", list); mcpTools = []; for (const k in mcpSessions) delete mcpSessions[k]; }
+
+async function mcpRequest(server, method, params, notify = false) {
+  const headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"};
+  if (server.key) headers.Authorization = "Bearer " + server.key;
+  const sess = mcpSessions[server.id];
+  if (sess?.session) headers["Mcp-Session-Id"] = sess.session;
+  if (method !== "initialize") headers["MCP-Protocol-Version"] = MCP_VERSION;
+  const id = notify ? undefined : ++seq;
+  const raw = await bridge("httpPost", {url: server.url, headers, body: JSON.stringify({jsonrpc: "2.0", ...(notify ? {} : {id}), method, ...(params ? {params} : {})})});
+  const res = JSON.parse(raw);
+  if (res.status === 401 || res.status === 403) throw new Error(`${server.name} wants a key (sign in), or the key is wrong.`);
+  if (res.status === 404 && sess) { delete mcpSessions[server.id]; throw new Error(`${server.name} ended the session. Try again.`); }
+  if (res.status >= 400) throw new Error(`${server.name} said ${res.status}: ${res.body.slice(0, 200)}`);
+  if (res.session) mcpSessions[server.id] = {session: res.session};
+  if (notify) return null;
+  // The answer is plain JSON, or a stream of events with the answer in one of them.
+  let messages = [];
+  if (res.type.includes("event-stream")) {
+    for (const line of res.body.split(/\r?\n/)) if (line.startsWith("data:")) { try { messages.push(JSON.parse(line.slice(5))); } catch (e) {} }
+  } else { try { const j = JSON.parse(res.body); messages = Array.isArray(j) ? j : [j]; } catch (e) { throw new Error(`${server.name} didn't answer like an MCP server.`); } }
+  const msg = messages.find(m => m.id === id);
+  if (!msg) throw new Error(`${server.name} gave no answer.`);
+  if (msg.error) throw new Error(`${server.name}: ${msg.error.message || JSON.stringify(msg.error)}`);
+  return msg.result;
+}
+async function mcpConnect(server) {
+  const init = await mcpRequest(server, "initialize", {protocolVersion: MCP_VERSION, capabilities: {}, clientInfo: {name: "Desk Agent", version: "1"}});
+  await mcpRequest(server, "notifications/initialized", null, true);
+  const tools = []; let cursor;
+  for (let page = 0; page < 5; page++) {
+    const r = await mcpRequest(server, "tools/list", cursor ? {cursor} : {});
+    tools.push(...(r.tools || [])); cursor = r.nextCursor; if (!cursor) break;
+  }
+  return {name: init?.serverInfo?.name || server.name, tools};
+}
+const mcpName = (server, tool) => (server.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20) + "__" + tool.name.replace(/[^a-zA-Z0-9_-]/g, "_")).slice(0, 64);
+// Connects to every switched on connector (once per app run) and collects their tools.
+async function mcpLoad(c) {
+  const list = connectors().filter(x => x.enabled !== false);
+  if (!list.length) { mcpTools = []; return; }
+  if (mcpTools.length && list.every(x => mcpSessions[x.id])) return;
+  const all = [];
+  for (const server of list) {
+    try {
+      const {tools} = await mcpConnect(server);
+      for (const tool of tools) all.push({server, tool, def: {type: "function", function: {name: mcpName(server, tool),
+        description: (tool.description || tool.title || tool.name).slice(0, 300), parameters: tool.inputSchema || {type: "object", properties: {}}}}});
+    } catch (e) { if (c) emit({type: "status", chat: c.id, text: `Couldn't reach ${server.name}: ${e.message}`}); }
+  }
+  mcpTools = all.slice(0, MCP_TOOL_LIMIT);  // small models get confused by too many tools
+}
+async function mcpCall(t, args) {
+  const r = await mcpRequest(t.server, "tools/call", {name: t.tool.name, arguments: args});
+  const text = (r.content || []).map(x => x.type === "text" ? x.text : x.type === "resource" ? (x.resource?.text || x.resource?.uri || "") : `[${x.type}]`).join("\n").trim()
+    || (r.structuredContent ? JSON.stringify(r.structuredContent) : "Done, with nothing to show.");
+  return r.isError ? "ERROR: " + text : text;
+}
+
+function showConnectors() {
+  const list = connectors();
+  sheet(`<h2>Connectors</h2><p class="sub">Let the AI use other services. Add one by its MCP address.</p>
+    <div class="list">${list.map(x => `<div class="item"><span class="grow" onclick="editConnector('${x.id}')" style="cursor:pointer">${esc(x.name)}<small>${esc(x.url)}</small></span>
+      ${toggle("cn-" + x.id, x.enabled !== false).replace("<input", `<input onchange="toggleConnector('${x.id}', this.checked)"`)}</div>`).join("")
+      || `<div class="item"><span class="grow">None yet</span></div>`}</div>
+    <div class="buttons"><button class="tonal left" onclick="editConnector()">Add</button><button class="text" onclick="closeSheet()">Done</button></div>`);
+}
+function toggleConnector(id, on) { const list = connectors(); list.find(x => x.id === id).enabled = on; saveConnectors(list); }
+function editConnector(id) {
+  const x = id ? connectors().find(c => c.id === id) : {name: "", url: "", key: ""};
+  sheet(`<h2>${id ? "Edit connector" : "Add a connector"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="cnName" value="${esc(x.name)}" placeholder="For example: My notes"></div>
+    <div class="field"><label>Address</label><input type="url" id="cnUrl" value="${esc(x.url)}" placeholder="https://example.com/mcp"></div>
+    <div class="field"><label>Key (if it needs one)</label><input type="password" id="cnKey" value="${esc(x.key || "")}" placeholder="Leave empty if none"></div>
+    <p class="sub" id="cnResult"></p>
+    <div class="buttons">${id ? `<button class="danger left" onclick="deleteConnector('${id}')">Delete</button>` : ""}
+      <button class="text" onclick="showConnectors()">Cancel</button><button class="filled" id="cnSave">Check and save</button></div>`, bg => {
+    bg.querySelector("#cnSave").onclick = async () => {
+      const url = $("cnUrl").value.trim();
+      if (!/^https:\/\//.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)/.test(url)) { toast("The address must start with https://"); return; }
+      const server = {id: id || uid(), name: $("cnName").value.trim() || new URL(url).hostname, url, key: $("cnKey").value.trim(), enabled: true};
+      $("cnResult").textContent = "Checking...";
+      try {
+        delete mcpSessions[server.id];
+        const info = await mcpConnect(server);
+        const list = connectors().filter(c => c.id !== server.id); list.push(server); saveConnectors(list);
+        toast(`${server.name} connected: ${info.tools.length} tools`); showConnectors();
+      } catch (e) { $("cnResult").textContent = "Couldn't connect: " + e.message; }
+    };
+  });
+}
+function deleteConnector(id) {
+  if (!confirm("Remove this connector?")) return;
+  saveConnectors(connectors().filter(x => x.id !== id)); showConnectors();
+}
+
+// ------------------------------------------------ start
+
+(function start() {
+  const runId = new URLSearchParams(location.search).get("run");
+  if (runId) { runScheduled(runId); return; }
+  renderOpts(); renderSide();
+  const chats = Store.listChats();
+  renderChat();  // always open on a fresh chat; earlier chats are in the menu
+  if (!installed().length) showModels();
+  else {
+    // Start loading the likely model now, so the first reply is quicker.
+    const ready = installed(), key = ready.includes(settings.model) ? settings.model : ready.includes("general") ? "general" : ready[0];
+    loadModel(key).then(() => setStatus(""), () => setStatus(""));
+  }
+})();
+</script>
+</body>
+</html>
