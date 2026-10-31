@@ -122,6 +122,18 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const current = () => saved.devices.find(d => d.address === saved.current) || null;
 const inApp = window.parent !== window;
+// The Desk Agent Dashboard app opens this as ?app=dashboard: it starts on the Dashboard tab and
+// expects Desk Agent on the same phone (127.0.0.1), though any phone on the Wi-Fi works.
+const asDash = new URLSearchParams(location.search).get("app") === "dashboard";
+const home = asDash ? "dash" : "chats";
+if (asDash) document.title = "Desk Agent Dashboard";
+// The app's back button: step back inside the page first, close the app only from the top.
+window.remoteBack = () => {
+  if (openChatId) { go("chats"); return true; }
+  if ($("tabs").hidden && current()) { go(tab); return true; }
+  if (current() && tab !== home) { go(home); return true; }
+  return false;
+};
 $("closeBtn").hidden = !inApp;
 function leave() { if (inApp) parent.postMessage("remote:close", "*"); }
 
@@ -156,12 +168,14 @@ function showPair(message) {
   stopPolling();
   $("head").hidden = !saved.devices.length; $("tabs").hidden = true;
   $("main").innerHTML = `<div class="page">
-    <h1>Control another device</h1>
-    <p class="sub">On the phone, open Desk Agent, then Remote control, and switch on "Let other devices control this phone". Enter the address and code it shows. Both devices need to be on the same Wi-Fi.</p>
+    <h1>${asDash ? "Connect to Desk Agent" : "Control another device"}</h1>
+    <p class="sub">${asDash
+      ? `Open Desk Agent, then Remote control, and switch on "Let other devices control this phone". Enter the code it shows here. The address 127.0.0.1:8765 means Desk Agent on this phone; for another phone, use the address it shows (both on the same Wi-Fi).`
+      : `On the phone, open Desk Agent, then Remote control, and switch on "Let other devices control this phone". Enter the address and code it shows. Both devices need to be on the same Wi-Fi.`}</p>
     <div class="field"><label for="pAddr">Address</label><input id="pAddr" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="for example 192.168.1.23:8765"></div>
     <div class="field"><label for="pCode">Code</label><input id="pCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits"></div>
     ${message ? `<p class="error">${esc(message)}</p>` : ""}
-    <div class="row-buttons">${saved.devices.length ? `<button class="text" onclick="go('chats')">Cancel</button>` : inApp ? `<button class="text" onclick="leave()">Cancel</button>` : ""}<button class="filled" id="pGo">Pair</button></div>
+    <div class="row-buttons">${saved.devices.length ? `<button class="text" onclick="go(home)">Cancel</button>` : inApp ? `<button class="text" onclick="leave()">Cancel</button>` : ""}<button class="filled" id="pGo">Pair</button></div>
   </div>`;
   $("pGo").onclick = async () => {
     let address = $("pAddr").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
@@ -172,20 +186,21 @@ function showPair(message) {
     try {
       const r = await api("POST", "/api/pair", {code}, {address, key: ""});
       saved.devices = saved.devices.filter(d => d.address !== address);
-      saved.devices.push({address, key: r.key, name: r.name || address});
+      saved.devices.push({address, key: r.key, name: /^(127\.0\.0\.1|localhost):/.test(address) ? "This phone" : r.name || address});
       saved.current = address; store.save(saved);
-      go("chats");
+      go(home);
     } catch (e) { showPair(e.message); $("pAddr").value = address; }
   };
+  if (asDash && !saved.devices.length) $("pAddr").value = "127.0.0.1:8765";
 }
 function showDevices() {
   stopPolling();
   $("tabs").hidden = true;
   $("main").innerHTML = `<div class="page"><h1>Devices</h1>
     <div class="list">${saved.devices.map(d => `<div class="item"><span class="grow"><b>${esc(d.name)}</b><small>${esc(d.address)}</small></span>
-      ${d.address === saved.current ? `<span class="meta">Using</span>` : `<button class="tonal" onclick="saved.current='${esc(d.address)}'; store.save(saved); go('chats')">Use</button>`}
+      ${d.address === saved.current ? `<span class="meta">Using</span>` : `<button class="tonal" onclick="saved.current='${esc(d.address)}'; store.save(saved); go(home)">Use</button>`}
       <button class="text" onclick="forget('${esc(d.address)}'); saved.devices.length ? showDevices() : showPair()">Remove</button></div>`).join("")}</div>
-    <div class="row-buttons"><button class="tonal" onclick="showPair()">Pair another</button><button class="filled" onclick="go('chats')">Done</button></div></div>`;
+    <div class="row-buttons"><button class="tonal" onclick="showPair()">Pair another</button><button class="filled" onclick="go(home)">Done</button></div></div>`;
 }
 
 // ------------------------------------------------ the device's state in the header
@@ -335,7 +350,7 @@ async function addSched() {
   catch (e) { $("sErr").hidden = false; $("sErr").textContent = e.message; }
 }
 
-current() ? go("chats") : showPair();
+current() ? go(home) : showPair();
 </script>
 </body>
 </html>

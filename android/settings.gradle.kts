@@ -14,3 +14,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "DeskAgentMobile"
 include(":app")
+// Desk Agent Dashboard, the small separate app (built by build-dashboard.yml).
+include(":dashboard")

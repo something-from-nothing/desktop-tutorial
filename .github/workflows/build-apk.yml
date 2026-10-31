@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [main]
-    paths: ["android/**", ".github/workflows/build-apk.yml"]
+    paths: ["android/**", "!android/dashboard/**", ".github/workflows/build-apk.yml"]
   workflow_dispatch:
 
 permissions:
@@ -92,7 +92,7 @@ jobs:
           keytool -list -keystore "$store" -storepass "$pass" | grep -i fingerprint
 
       - name: Build the APK
-        run: gradle -p android assembleRelease --no-daemon
+        run: gradle -p android :app:assembleRelease --no-daemon
 
       - name: Check the signature
         run: |
@@ -111,7 +111,7 @@ jobs:
           echo "Packing in $repo/$name"
           curl -fL --retry 3 -o android/app/src/main/jniLibs/arm64-v8a/libmodel_quick.so "https://huggingface.co/$repo/resolve/main/$name"
           ls -la android/app/src/main/jniLibs/arm64-v8a/
-          gradle -p android assembleRelease --no-daemon
+          gradle -p android :app:assembleRelease --no-daemon
           apk=android/app/build/outputs/apk/release/app-release.apk
           signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
           "$signer" verify "$apk"
@@ -127,7 +127,7 @@ jobs:
           name=$(curl -sf "https://huggingface.co/api/models/$repo" | python3 -c "import json,sys; f=[s['rfilename'] for s in json.load(sys.stdin)['siblings'] if s['rfilename'].lower().endswith('.gguf') and 'q4_0' in s['rfilename'].lower() and '-of-' not in s['rfilename']]; print(sorted(f, key=len)[0])")
           echo "Packing in $repo/$name"
           curl -fL --retry 3 -o android/app/src/main/jniLibs/arm64-v8a/libmodel_tiny.so "https://huggingface.co/$repo/resolve/main/$name"
-          gradle -p android assembleRelease --no-daemon
+          gradle -p android :app:assembleRelease --no-daemon
           apk=android/app/build/outputs/apk/release/app-release.apk
           signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
           "$signer" verify "$apk"
@@ -156,7 +156,7 @@ jobs:
                | grep NEEDED | grep -vE 'lib(c|m|dl|log)\.so'; then
             echo "The engine needs a library that isn't on every Chromebook"; exit 1
           fi
-          DESKAGENT_ABI=x86_64 gradle -p android assembleRelease --no-daemon
+          DESKAGENT_ABI=x86_64 gradle -p android :app:assembleRelease --no-daemon
           apk=android/app/build/outputs/apk/release/app-release.apk
           signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
           "$signer" verify "$apk"

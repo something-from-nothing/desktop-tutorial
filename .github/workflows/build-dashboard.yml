@@ -1,0 +1,95 @@
+name: Build Desk Agent Dashboard APK
+
+# Desk Agent Dashboard: a small separate app (no AI inside) that shows Desk Agent's
+# Dashboard, chats and schedules through its remote control. A few minutes to build.
+on:
+  push:
+    branches: [main]
+    paths: ["android/dashboard/**", "android/app/src/main/assets/remote.html", ".github/workflows/build-dashboard.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-dashboard
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      # Every build must be signed with the same key, or Android won't install a new
+      # version over the old one. The key lives in GitHub's build cache (never in the
+      # code). Saving it as the repo secrets ANDROID_KEYSTORE_BASE64 and
+      # ANDROID_KEY_PASSWORD instead makes it permanent; the cache is dropped if no
+      # build runs for 7 days.
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.deskagent-signing
+          key: deskagent-signing-key-v1
+
+      - name: Set up the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          dir="$HOME/.deskagent-signing"
+          mkdir -p "$dir"
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$dir/secret.keystore"
+            store="$dir/secret.keystore"; pass="$KEY_PASSWORD"
+          else
+            store="$dir/deskagent.keystore"
+            if [ ! -s "$store" ] || [ ! -s "$dir/password" ]; then
+              echo "::warning::Making a new signing key. Phones with an older build must uninstall it once."
+              openssl rand -base64 24 > "$dir/password"
+              keytool -genkeypair -storetype PKCS12 -keystore "$store" -alias deskagent -keyalg RSA -keysize 3072 \
+                -validity 10950 -storepass "$(cat "$dir/password")" -keypass "$(cat "$dir/password")" -dname "CN=Desk Agent Mobile, C=GB"
+            fi
+            pass=$(cat "$dir/password")
+          fi
+          echo "::add-mask::$pass"
+          echo "SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
+          echo "SIGNING_PASSWORD=$pass" >> "$GITHUB_ENV"
+          keytool -list -keystore "$store" -storepass "$pass" | grep -i fingerprint
+
+      - name: Build the Dashboard APK
+        run: |
+          # Its page is Desk Agent's own remote control page, so the two always match.
+          mkdir -p android/dashboard/src/main/assets
+          cp android/app/src/main/assets/remote.html android/dashboard/src/main/assets/
+          gradle -p android :dashboard:assembleRelease --no-daemon
+          apk=android/dashboard/build/outputs/apk/release/dashboard-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify --print-certs "$apk"
+          unzip -l "$apk" | grep remote.html
+          cp "$apk" DeskAgent-Dashboard.apk
+          ls -la DeskAgent-Dashboard.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskAgent-Dashboard
+          path: DeskAgent-Dashboard.apk
+
+      - name: Publish to the dashboard branch
+        # Permanent link: github.com/<owner>/<repo>/raw/dashboard/DeskAgent-Dashboard.apk
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir publish && cp DeskAgent-Dashboard.apk publish/ && cd publish
+          git init -b dashboard
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add DeskAgent-Dashboard.apk
+          git commit -m "Dashboard APK built from ${{ github.sha }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" dashboard
