@@ -96,18 +96,21 @@ final class Core {
         if (!exe.exists()) throw new Exception("The AI engine is missing from this build.");
         int port;
         try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
-        int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors() - 2));
+        // Half the cores at most (4 on a Pixel 9), so the rest of the phone stays smooth while it thinks.
+        int threads = Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors() / 2));
         List<String> args = new ArrayList<>(java.util.Arrays.asList(exe.getPath(), "-m", modelFile.getPath(), "--host", "127.0.0.1",
                 "--port", String.valueOf(port), "-c", String.valueOf(context), "--jinja", "--reasoning-format", "none",
                 "-t", String.valueOf(threads)));
         // A model that sees photos has its picture reader in the same folder.
         File[] reader = modelFile.getParentFile().listFiles((d, n) -> n.startsWith("mmproj") && n.endsWith(".gguf"));
         if (reader != null && reader.length > 0) { args.add("--mmproj"); args.add(reader[0].getPath()); }
-        ProcessBuilder pb = new ProcessBuilder(args);
-        pb.redirectErrorStream(true);
         File log = new File(app.getFilesDir(), "engine.log");
-        pb.redirectOutput(log);
-        engine = pb.start();
+        // Run it at low priority (nice), so taps and scrolling always come first. If this phone's
+        // nice doesn't work, start it plainly instead.
+        boolean niced = new File("/system/bin/nice").canExecute();
+        engine = launch(niced ? withNice(args) : args, log);
+        Thread.sleep(300);
+        if (niced && !engine.isAlive()) engine = launch(args, log);
         long deadline = System.currentTimeMillis() + 240_000;
         while (System.currentTimeMillis() < deadline) {
             if (!engine.isAlive()) throw new Exception("The model failed to load: " + tail(log));
@@ -145,6 +148,24 @@ final class Core {
             }
         }
         return bundledModel(key);
+    }
+
+    private static Process launch(List<String> args, File log) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(args);
+        pb.redirectErrorStream(true);
+        pb.redirectOutput(log);
+        return pb.start();
+    }
+
+    private static List<String> withNice(List<String> args) {
+        List<String> out = new ArrayList<>(java.util.Arrays.asList("/system/bin/nice", "-n", "10"));
+        out.addAll(args);
+        return out;
+    }
+
+    /** The AI's model is loaded and running (it holds memory). */
+    synchronized boolean engineUp() {
+        return engine != null && engine.isAlive();
     }
 
     synchronized void stopEngine() {

@@ -156,6 +156,33 @@ public class MainActivity extends Activity {
         web.evaluateJavascript("window.openChat && openChat(" + JSONObject.quote(id) + ")", null);
     }
 
+    // Leaving Desk Agent: after a few idle minutes, close the AI so it gives the phone its memory
+    // back. It starts again (a few seconds) the next time you ask something.
+    private static final long IDLE_STOP_MS = 3 * 60_000;
+    private final android.os.Handler idle = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable stopIfIdle = () -> {
+        Core core = Core.get(this);
+        if (onScreen || !core.engineUp() || RunService.busy || RemoteServer.get(this).running()) return;
+        web.evaluateJavascript("typeof job !== 'undefined' && job ? 'busy' : 'idle'", r -> {
+            if (!"\"idle\"".equals(r) || onScreen) return;
+            core.stopEngine();
+            web.evaluateJavascript("window.onEngineStopped && onEngineStopped()", null);
+        });
+    };
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        idle.removeCallbacks(stopIfIdle);
+        idle.postDelayed(stopIfIdle, IDLE_STOP_MS);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        idle.removeCallbacks(stopIfIdle);
+    }
+
     @Override
     protected void onPause() {
         onScreen = false;

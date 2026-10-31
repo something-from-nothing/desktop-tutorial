@@ -33,6 +33,8 @@ public class RunService extends Service {
     private WebView hidden;
     private Bridge hiddenBridge;
     private boolean keepAlive;
+    /** A scheduled chat or a question from the car is being answered in the background. */
+    static volatile boolean busy;
     private final Runnable giveUp = this::finishRun;
 
     @Override
@@ -97,6 +99,7 @@ public class RunService extends Service {
             stopIfIdle();
             return;
         }
+        busy = true;
         hidden = new WebView(this);
         hidden.getSettings().setJavaScriptEnabled(true);
         hidden.getSettings().setDomStorageEnabled(true);
@@ -115,6 +118,7 @@ public class RunService extends Service {
             hidden.destroy();
             hidden = null;
         }
+        busy = false;
         Scheduler.rescheduleAll(this);
         runNext();
     }

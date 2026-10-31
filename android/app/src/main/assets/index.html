@@ -615,6 +615,8 @@ const Store = {
 // ================================================================ the AI engine
 
 let enginePort = 0, engineModel = null;
+// Android closed the AI while Desk Agent sat in the background: load it again on the next question.
+window.onEngineStopped = () => { engineModel = null; enginePort = 0; };
 async function loadModel(key) {
   if (engineModel === key && enginePort) return enginePort;
   setStatus(`Loading the ${CATALOG[key]?.label || key} model...`);
@@ -2581,9 +2583,10 @@ function deleteConnector(id) {
   if (new URLSearchParams(location.search).has("remote")) return;
   if (!installed().length) showModels();
   else {
-    // Start loading the likely model now, so the first reply is quicker.
+    // Load the likely model once you start typing (not the moment the app opens, which made
+    // the whole phone sluggish), so it's usually ready by the time you press send.
     const ready = installed(), key = ready.includes(settings.model) ? settings.model : ready.includes("general") ? "general" : ready[0];
-    loadModel(key).then(() => setStatus(""), () => setStatus(""));
+    $("input").addEventListener("focus", () => { if (!engineModel && !job) loadModel(key).then(() => setStatus(""), () => setStatus("")); }, {once: true});
   }
 })();
 </script>
