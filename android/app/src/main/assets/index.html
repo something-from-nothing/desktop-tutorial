@@ -1254,7 +1254,10 @@ function drawDash() {
     ${uses.length ? `<section><h3>Models used</h3><div class="bars">${uses.map(([k, n]) => `<div class="row"><span>${esc(CATALOG[k]?.label || k)}</span><div class="track"><div style="width:${Math.round(100 * n / top)}%"></div></div><span>${n}</span></div>`).join("")}</div></section>` : ""}
     <section><h3>Models on this device</h3><div class="list">${keys.map(k => `<div class="item"><span class="grow">${esc(CATALOG[k].label)}<small>${esc(CATALOG[k].detail)}${files[k] ? " · " + gb(files[k]) : ""}${builtIn.includes(k) ? " · built in" : ""}</small></span>${(window.Android ? B.loaded() : engineModel) === k ? `<span class="chip good">In use</span>` : ""}</div>`).join("") || `<div class="item"><span class="grow">None yet</span></div>`}</div></section>
     <section><h3>Chats</h3><input type="search" id="dashSearch" placeholder="Search chats" oninput="drawDashChats()" style="margin-bottom:8px"><div class="list chatlist" id="dashChats"></div></section>
-    <section><h3>Scheduled</h3><div class="list">${sched.map(x => `<div class="item"><span class="grow">${esc(x.title)}<small>${describeSchedule(x)} · ${nextText(x)}${x.last_run ? " · last ran " + ago(x.last_run) : ""}</small></span><span class="chip ${x.enabled ? "good" : ""}">${x.enabled ? "On" : "Off"}</span></div>`).join("") || `<div class="item"><span class="grow">Nothing scheduled</span></div>`}</div></section>
+    <section><h3>Scheduled</h3><div class="list">${sched.map(x => `<div class="item"><span class="grow" onclick="editSchedule('${x.id}')" style="cursor:pointer">${esc(x.title)}<small>${describeSchedule(x)} · ${nextText(x)}${x.last_run ? " · last ran " + ago(x.last_run) : ""}</small></span>
+        ${toggle("dsch-" + x.id, x.enabled).replace("<input", `<input onchange="toggleSchedule('${x.id}', this.checked, true)"`)}</div>`).join("") || `<div class="item"><span class="grow">Nothing scheduled yet<small>For example: every morning at 7, the weather and the news. Or ask in any chat: "remind me at 5pm to call mum".</small></span></div>`}</div>
+      <div class="buttons" style="margin-top:8px;justify-content:flex-start"><button class="tonal" onclick="editSchedule()">New</button>
+        ${sched.some(x => x.title === BRIEFING.title) ? "" : `<button class="text" onclick="addBriefing()">Add daily briefing</button>`}</div></section>
     <section><h3>Recent problems</h3><div class="list problems">${probs.slice(0, 10).map(p => `<div class="item"><span class="grow"><pre>${esc(p.text)}</pre><small>${ago(p.at)}</small></span></div>`).join("") || `<div class="item"><span class="grow">None. Problems show up here when something goes wrong.</span></div>`}</div>
       ${probs.length ? `<div class="buttons" style="margin-top:8px"><button class="text" onclick="writeJSON('problems.json', []); drawDash()">Clear</button></div>` : ""}</section>
     ${log ? `<section><h3>AI engine log</h3><details><summary class="sub" style="cursor:pointer">Show the last lines (for fixing problems)</summary><pre class="englog">${esc(log.split("\n").slice(-60).join("\n"))}</pre></details></section>` : ""}
@@ -1903,7 +1906,11 @@ function sheet(html, onReady) {
   bg.onclick = e => { if (e.target === bg) closeSheet(); };
   document.body.appendChild(bg); if (onReady) onReady(bg); return bg;
 }
-function closeSheet() { document.querySelector(".sheet-bg")?.remove(); }
+function closeSheet() {
+  const had = document.querySelector(".sheet-bg");
+  had?.remove();
+  if (had && $("dash")?.classList.contains("open")) drawDash();
+}
 const toggle = (id, on) => `<label class="switch"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span></span></label>`;
 
 // Agent, model, style and think first, all in one place.
@@ -2163,9 +2170,10 @@ function showSchedules() {
   window.__sheetRedraw = () => { if (document.querySelector(".sheet-bg")) draw(); };
   draw();
 }
-function toggleSchedule(id, on) {
+function toggleSchedule(id, on, fromDash) {
   const list = schedules(), s = list.find(x => x.id === id);
-  s.enabled = on; s.next_run = nextRun(s); saveSchedules(list); showSchedules();
+  s.enabled = on; s.next_run = nextRun(s); saveSchedules(list);
+  if (fromDash) { drawDash(); toast(on ? nextText(s) : "Paused"); } else showSchedules();
 }
 function editSchedule(id) {
   const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
