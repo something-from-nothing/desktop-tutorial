@@ -38,7 +38,6 @@ final class Core {
     private Process engine;
     private String engineModel;
     private int enginePort;
-    private final List<String> cancelled = new ArrayList<>();
     /** Every open page, so download progress reaches whichever is showing. */
     final List<Bridge> bridges = new ArrayList<>();
 
@@ -129,12 +128,17 @@ final class Core {
         return f.exists() && f.length() > 1_000_000 ? f : null;
     }
 
-    /** Where a model's file is: downloaded ones first, then one that came with the app. */
+    /** Where a model's file is: downloaded ones first (older app versions kept them in
+     *  modelsDir, newer ones where Android's download manager puts them), then one that
+     *  came with the app. */
     File modelFile(String key) {
-        try {
-            File[] files = safe(modelsDir(), key).listFiles((d, n) -> n.endsWith(".gguf"));
-            if (files != null && files.length > 0) return files[0];
-        } catch (Exception ignored) {
+        for (File root : new File[]{modelsDir(), ModelDownloads.dir(app)}) {
+            if (root == null) continue;
+            try {
+                File[] files = safe(root, key).listFiles((d, n) -> n.endsWith(".gguf"));
+                if (files != null && files.length > 0) return files[0];
+            } catch (Exception ignored) {
+            }
         }
         return bundledModel(key);
     }
@@ -168,11 +172,10 @@ final class Core {
     // ------------------------------------------------ downloading models
 
     void cancelDownload(String key) {
-        synchronized (cancelled) {
-            cancelled.add(key);
-        }
+        ModelDownloads.cancel(app, key);
     }
 
+    /** Finds the model's file on Hugging Face and hands it to Android's download manager. */
     void download(String key, String repo, String quant) throws Exception {
         JSONObject info = new JSONObject(new String(get("https://huggingface.co/api/models/" + repo, 5_000_000), StandardCharsets.UTF_8));
         JSONArray siblings = info.optJSONArray("siblings");
@@ -185,41 +188,32 @@ final class Core {
         }
         if (name == null) throw new Exception("No " + quant + " file found in " + repo);
 
-        File folder = safe(modelsDir(), key);
-        folder.mkdirs();
-        File part = new File(folder, name + ".part");
-        long done = part.exists() ? part.length() : 0;
-        HttpURLConnection c = (HttpURLConnection) new URL("https://huggingface.co/" + repo + "/resolve/main/"
-                + URLEncoder.encode(name, "UTF-8").replace("+", "%20")).openConnection();
-        c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", "DeskAgentMobile");
-        c.setRequestProperty("Range", "bytes=" + done + "-");
-        c.setConnectTimeout(30_000);
-        c.setReadTimeout(60_000);
-        if (c.getResponseCode() != 206) done = 0;  // the server ignored the resume request, start again
-        long total = done + c.getContentLengthLong();
-        long lastReport = 0;
-        try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(part, done > 0)) {
-            byte[] buf = new byte[1 << 16];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                synchronized (cancelled) {
-                    if (cancelled.remove(key)) {
-                        progress(key, done, total, "cancelled", null);
-                        return;
-                    }
-                }
-                out.write(buf, 0, n);
-                done += n;
-                long now = System.currentTimeMillis();
-                if (now - lastReport > 500) {
-                    lastReport = now;
-                    progress(key, done, total, null, null);
-                }
-            }
+        ModelDownloads.start(app, key, name, "https://huggingface.co/" + repo + "/resolve/main/"
+                + URLEncoder.encode(name, "UTF-8").replace("+", "%20"));
+        watch(key);
+    }
+
+    /** Passes a download's progress to the page until it ends. The download itself
+     *  doesn't depend on this: it carries on if the app is closed. */
+    void watch(String key) throws InterruptedException {
+        while (true) {
+            long[] s = ModelDownloads.check(app, key);
+            if (s[2] == 1) { progress(key, s[0], s[1], "done", null); return; }
+            if (s[2] == 2) { progress(key, s[0], s[1], "error", ModelDownloads.lastError); return; }
+            if (s[2] == 3) { progress(key, s[0], s[1], "cancelled", null); return; }
+            progress(key, s[0], Math.max(s[1], 0), null, null);
+            Thread.sleep(700);
         }
-        if (!part.renameTo(new File(folder, name))) throw new Exception("Couldn't save the model file.");
-        progress(key, done, total, "done", null);
+    }
+
+    /** When the app opens: finish downloads that ended while it was closed, and show the
+     *  progress of ones still going. */
+    void resumeDownloads() {
+        for (String key : ModelDownloads.pending(app)) {
+            new Thread(() -> {
+                try { watch(key); } catch (InterruptedException ignored) { }
+            }).start();
+        }
     }
 
     void progress(String key, long done, long total, String status, String error) {

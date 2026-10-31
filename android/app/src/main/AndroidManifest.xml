@@ -51,6 +51,12 @@
 
         <!-- Alarms come only from this app; the restart and update notices come from Android. -->
         <receiver android:name=".AlarmReceiver" android:exported="false" />
+        <!-- Android's download manager says a model download finished (it runs as another app). -->
+        <receiver android:name=".ModelDownloads$Done" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -125,12 +125,14 @@ class Bridge {
     @JavascriptInterface
     public String models() {
         JSONObject out = new JSONObject();
-        File[] dirs = core.modelsDir().listFiles();
-        if (dirs != null) for (File d : dirs) {
-            File[] g = d.listFiles((x, n) -> n.endsWith(".gguf"));
-            try {
-                if (g != null && g.length > 0) out.put(d.getName(), g[0].length());
-            } catch (Exception ignored) {
+        for (File root : new File[]{core.modelsDir(), ModelDownloads.dir(context)}) {
+            File[] dirs = root == null ? null : root.listFiles();
+            if (dirs != null) for (File d : dirs) {
+                File[] g = d.listFiles((x, n) -> n.endsWith(".gguf"));
+                try {
+                    if (g != null && g.length > 0 && !out.has(d.getName())) out.put(d.getName(), g[0].length());
+                } catch (Exception ignored) {
+                }
             }
         }
         // Models that came inside the app count as downloaded.
@@ -158,9 +160,15 @@ class Bridge {
     public boolean deleteModel(String key) {
         try {
             if (key.equals(core.engineModel())) core.stopEngine();
-            File[] files = Core.safe(core.modelsDir(), key).listFiles();
-            if (files != null) for (File f : files) f.delete();
-            return Core.safe(core.modelsDir(), key).delete();
+            boolean gone = false;
+            for (File root : new File[]{core.modelsDir(), ModelDownloads.dir(context)}) {
+                if (root == null) continue;
+                File folder = Core.safe(root, key);
+                File[] files = folder.listFiles();
+                if (files != null) for (File f : files) f.delete();
+                gone |= folder.delete();
+            }
+            return gone;
         } catch (Exception e) {
             return false;
         }

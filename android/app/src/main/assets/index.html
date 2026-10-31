@@ -1348,7 +1348,7 @@ function drawModels() {
     if (window.__deskIPad) action = engineModel === k ? `<span class="ready">In use</span>` : `<button class="tonal" onclick="useModel('${k}')">Use</button>`;
     else if (builtIn.includes(k)) action = `<span class="ready">Built in</span>`;
     else if (ready) action = `<span class="ready">Ready</span><button class="icon-btn" onclick="delModel('${k}')" aria-label="Delete">${icon("trash", "width:19px;height:19px")}</button>`;
-    else if (dl && !dl.status) action = `<span class="meta">${dl.total ? Math.round(100 * dl.done / dl.total) + "%" : "Starting"}</span><button class="tonal" onclick="B.cancelDownload('${k}')">Pause</button>`;
+    else if (dl && !dl.status) action = `<span class="meta">${dl.total ? Math.round(100 * dl.done / dl.total) + "%" : "Starting"}</span><button class="tonal" onclick="B.cancelDownload('${k}')">Stop</button>`;
     else action = `<button class="filled" onclick="getModel('${k}')">${dl && dl.status === "error" ? "Retry" : dl && dl.done ? "Resume" : "Get"}</button>`;
     const bar = dl && !dl.status && dl.total ? `<div class="progress"><div style="width:${100 * dl.done / dl.total}%"></div></div>` : "";
     const err = dl && dl.status === "error" ? `<small class="note">${esc(dl.error)}</small>` : "";
@@ -1364,7 +1364,7 @@ function useModel(k) {
 function showModels() {
   const intro = window.__deskIPad ? "Each model downloads the first time you use it (over Wi-Fi), then works offline. Bigger ones are cleverer but slower."
     : !window.Android && JSON.parse(B.builtInModels()).length ? "This model is built in and works offline."
-    : `Free models from different makers. Download once over Wi-Fi, then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.`;
+    : `Free models from different makers. Download once over Wi-Fi (it carries on with the screen off or the app closed), then they work offline. Start with General. ${(B.freeSpace() / 1e9).toFixed(0)} GB free.`;
   sheet(`<h2>Models</h2><p class="sub">${intro}</p>
     <div class="list" id="modelsList"></div><div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`);
   drawModels();
