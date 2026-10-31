@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write
 
+# One build at a time: a newer push replaces a waiting one, so two builds never race
+# to save their files (that failed a build once).
+concurrency:
+  group: build-exe
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
