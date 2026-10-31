@@ -227,6 +227,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
     <button class="row-btn" onclick="closeDrawer(); showModels()"><svg class="i"><use href="#i-chip"/></svg><span>Models</span></button>
     <button class="row-btn" onclick="closeDrawer(); showSchedules()"><svg class="i"><use href="#i-clock"/></svg><span>Scheduled</span></button>
+    <button class="row-btn" onclick="closeDrawer(); showConnectors()"><svg class="i"><use href="#i-plug"/></svg><span>Connectors</span></button>
     <button class="row-btn" onclick="closeDrawer(); showMemory()"><svg class="i"><use href="#i-book"/></svg><span>Memory</span></button>
     <button class="row-btn" onclick="closeDrawer(); showSettings()"><svg class="i"><use href="#i-gear"/></svg><span>Settings</span></button>
     <div class="stats" id="stats"></div>
@@ -297,6 +298,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/></symbol>
   <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-10 0zM12 16v5"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></symbol>
 </svg>
@@ -400,6 +402,13 @@ const B = window.Android || (() => {
     keepAlive: () => {}, bringToFront: () => {}, openWebsite: k => { window.__opened = k; }, exactAlarmsAllowed: () => true, openAlarmSettings: () => {}, notificationsAllowed: () => true,
     askForNotifications: () => {}, schedulesChanged: () => { window.__schedulesChanged = (window.__schedulesChanged || 0) + 1; },
     scheduledDone: (chatId, title, text) => { window.__scheduledDone = {chatId, title, text}; },
+    onScreen: () => !document.hidden,
+    // Desk OS has no notification shade: show it on screen, and as a system notification if allowed.
+    notify: (key, chatId, title, text) => {
+      window.__notified = [...(window.__notified || []), {key, chatId, title, text}];
+      toast(`${title}: ${text}`.slice(0, 160));
+      try { if (window.Notification && Notification.permission === "granted") new Notification(title, {body: text}); } catch (e) {}
+    },
     call: async (id, method, args) => {
       const a = JSON.parse(args), reply = (value, error) => setTimeout(() => window.__bridgeReply(JSON.stringify({id, value, error})), 10);
       try {
@@ -419,6 +428,10 @@ const B = window.Android || (() => {
           const blob = await (await fetch(a.url)).blob(), link = document.createElement("a");
           link.href = URL.createObjectURL(blob); link.download = a.name; link.click();
           return reply("Downloads/" + a.name);
+        }
+        if (method === "httpPost") {
+          const res = await fetch(a.url, {method: "POST", headers: a.headers || {}, body: a.body});
+          return reply(JSON.stringify({status: res.status, type: res.headers.get("content-type") || "", session: res.headers.get("mcp-session-id") || "", body: await res.text()}));
         }
         if (method === "saveDownload" && builtin) {
           const link = document.createElement("a");
@@ -552,6 +565,10 @@ const TOOL_GROUPS = {
     tool("create_image", "Make a picture from a detailed description and show it to the user.",
       {prompt: {type: "string", description: "Detailed English description of the picture"}, shape: {type: "string", enum: ["square", "portrait", "landscape"]}}, ["prompt"]),
   ],
+  remind: [
+    tool("set_reminder", "Set a reminder: at the time given, the user gets a notification with the text. Use the current UK date and time above to work out the date.",
+      {text: {type: "string", description: "What to remind them about"}, date: {type: "string", description: "YYYY-MM-DD"}, time: {type: "string", description: "HH:MM, 24 hour"}}, ["text", "date", "time"]),
+  ],
   ask: [
     tool("ask_user", "Ask the user a question as a poll they answer by tapping. Use it when the request could mean different things or a real choice is theirs to make, instead of guessing. One question per poll, 2 to 4 short options; they can also type their own answer.",
       {question: {type: "string"}, options: {type: "array", items: {type: "string"}}, multiple: {type: "boolean", description: "true if they may pick more than one"}}, ["question", "options"]),
@@ -563,6 +580,8 @@ const TOOL_GROUPS = {
 };
 const GROUP_PROMPTS = {
   media: "You can make pictures with create_image.",
+  mcp: "Connected services you can use through their tools: {connectors}.",
+  remind: "You can set reminders with set_reminder; the user gets a notification at that time.",
   ask: "When it's unclear what the user wants, or a choice is theirs to make, ask with ask_user (a tap poll) instead of guessing. Ask one poll, then wait for the answer.",
   web: "You can search the web and read pages. Say where information came from.",
   artifacts: "Use create_artifact to show finished web pages, drawings, documents or code to the user.",
@@ -616,10 +635,10 @@ let job = null;  // {chatId, controller}
 
 // Helper agents (allowDelegate false) can't ask the user anything: only the main chat can.
 function agentGroups(agent, allowDelegate) {
-  return [...(agent.tools || []), ...(allowDelegate && !B.isBackground() ? ["ask"] : [])].filter(g => g !== "delegate" || allowDelegate);
+  return [...(agent.tools || []), ...(allowDelegate ? ["remind"] : []), ...(allowDelegate && !B.isBackground() ? ["ask"] : []), ...(allowDelegate && mcpTools.length ? ["mcp"] : [])].filter(g => g !== "delegate" || allowDelegate);
 }
 function toolsFor(agent, allowDelegate = true) {
-  return agentGroups(agent, allowDelegate).flatMap(g => TOOL_GROUPS[g] || []);
+  return agentGroups(agent, allowDelegate).flatMap(g => g === "mcp" ? mcpTools.map(t => t.def) : TOOL_GROUPS[g] || []);
 }
 // The date and time in the UK, GMT in winter and BST in summer, worked out fresh for every message.
 function ukNow() {
@@ -630,7 +649,7 @@ function ukNow() {
 }
 function systemPrompt(agentId, agent, c, {style = "normal", think = false, allowDelegate = true} = {}) {
   const others = Object.entries(allAgents()).filter(([k]) => k !== agentId).map(([k, a]) => `${k} (${a.name})`).join(", ");
-  const parts = agentGroups(agent, allowDelegate).filter(g => GROUP_PROMPTS[g]).map(g => GROUP_PROMPTS[g].replace("{agents}", others));
+  const parts = agentGroups(agent, allowDelegate).filter(g => GROUP_PROMPTS[g]).map(g => GROUP_PROMPTS[g].replace("{agents}", others).replace("{connectors}", [...new Set(mcpTools.map(t => t.server.name))].join(", ")));
   let p = BASE_PROMPT.replace("{agent_name}", agent.name).replace("{today}", ukNow())
     .replace("{instructions}", agent.instructions || "").replace("{tools}", parts.length ? parts.join("\n") + "\n" : "");
   if (STYLES[style]) p += "\n\nStyle: " + STYLES[style];
@@ -700,6 +719,7 @@ async function runJob(c, body) {
     model = m;
     if (reason) emit({type: "status", chat: c.id, text: `Using ${CATALOG[m]?.label || m} because ${reason}`});
     await loadModel(m);
+    await mcpLoad(c);
     const system = systemPrompt(agentId, agent, c, {style: body.style, think: body.think});
     await agentLoop(c, c.messages, system, toolsFor(agent), null);
   } catch (e) {
@@ -745,6 +765,15 @@ async function runTool(c, call, sub) {
   const name = call.function.name;
   let args;
   try { args = JSON.parse(call.function.arguments || "{}"); } catch (e) { return [`ERROR: the arguments were not valid JSON: ${call.function.arguments.slice(0, 400)}`, {}]; }
+  const mcpTool = mcpTools.find(t => t.def.function.name === name);
+  if (mcpTool) {
+    emit({type: "tool_call", chat: c.id, sub, id: call.id, name, args});
+    let result;
+    try { result = await mcpCall(mcpTool, args); } catch (e) { result = `ERROR: ${e.message || e}`; }
+    if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
+    emit({type: "tool_result", chat: c.id, sub, id: call.id, name, result: result.slice(0, 3000)});
+    return [result, {}];
+  }
   const def = Object.values(TOOL_GROUPS).flat().find(t => t.function.name === name);
   if (!def) return [`ERROR: there is no tool called ${name}.`, {}];
   const props = def.function.parameters.properties;
@@ -759,6 +788,7 @@ async function runTool(c, call, sub) {
     else if (name === "ask_agent") [result, extra] = await askAgent(c, call.id, args);
     else if (name === "ask_user") result = "The poll is on screen. Wait for the user's answer in their next message.";
     else if (name === "create_image") [result, extra] = await makeImage(c, args);
+    else if (name === "set_reminder") result = setReminder(args);
     else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
   } catch (e) { result = `ERROR: ${e.message || e}`; }
   if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
@@ -1019,10 +1049,13 @@ function pollSend(id) {
   $("input").value = [...p.picked].sort().map(i => p.options[i]).join(", ");
   send();
 }
-function toolIcon(name) { return name === "create_image" ? "image" : name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : "globe"; }
+function toolIcon(name) { return name === "create_image" ? "image" : name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : name === "set_reminder" ? "clock" : "globe"; }
 function toolLabel(name, a) {
   if (PHONE_TOOLS[name]) return PHONE_TOOLS[name](a);
   if (name === "web_search") return `Searched for “${a.query}”`;
+  if (name === "set_reminder") return `Reminder set: ${a.text} (${a.date} ${a.time})`;
+  const mt = mcpTools.find(t => t.def.function.name === name);
+  if (mt) return `Used ${mt.server.name}: ${mt.tool.name.replace(/_/g, " ")}`;
   if (name === "read_webpage") { try { return `Read ${new URL(a.url).hostname.replace(/^www\./, "")}`; } catch (e) { return "Read a web page"; } }
   return name.replace(/_/g, " ");
 }
@@ -1407,6 +1440,7 @@ function nextRun(s, from = Date.now()) {
   return 0;
 }
 function describeSchedule(s) {
+  if (s.kind === "reminder") return `Reminder · ${new Date(`${s.date}T${s.time}`).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"})} at ${s.time}`;
   if (s.repeat === "once") return `${new Date(`${s.date}T${s.time}`).toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"})} at ${s.time}`;
   if (s.repeat === "weekly") return `${DAYS[+s.day]}s at ${s.time}`;
   return `${REPEATS[s.repeat]} at ${s.time}`;
@@ -1429,11 +1463,11 @@ function showSchedules() {
     const warn = [];
     if (!B.exactAlarmsAllowed()) warn.push(`<div class="item"><span class="grow">Allow on time alarms<small>Without this, scheduled chats can run late.</small></span><button class="tonal" onclick="B.openAlarmSettings()">Allow</button></div>`);
     if (!B.notificationsAllowed()) warn.push(`<div class="item"><span class="grow">Allow notifications<small>So you hear when a scheduled chat has an answer.</small></span><button class="tonal" onclick="B.askForNotifications()">Allow</button></div>`);
-    sheet(`<h2>Scheduled</h2><p class="sub">Chats that run on their own, like a morning briefing. Each one keeps its answers in its own chat, and you get a notification.</p>
+    sheet(`<h2>Scheduled</h2><p class="sub">Chats and reminders that run on their own. You get a notification.</p>
       ${warn.length ? `<div class="list" style="margin-bottom:12px">${warn.join("")}</div>` : ""}
       <div class="list">${list.map(x => `<div class="item"><span class="grow" onclick="editSchedule('${x.id}')" style="cursor:pointer">${esc(x.title)}<small>${describeSchedule(x)} · ${nextText(x)}</small></span>
         ${toggle("sch-" + x.id, x.enabled).replace("<input", `<input onchange="toggleSchedule('${x.id}', this.checked)"`)}</div>`).join("")
-        || `<div class="item"><span class="grow">Nothing scheduled yet<small>For example: every morning at 7, summarise today's news.</small></span></div>`}</div>
+        }${list.some(x => x.title === BRIEFING.title) ? "" : `<div class="item"><span class="grow">Daily briefing<small>Weather and news at 07:30</small></span><button class="text" onclick="addBriefing()">Add</button></div>`}</div>
       <div class="buttons"><button class="tonal left" onclick="editSchedule()">New</button><button class="text" onclick="closeSheet()">Done</button></div>`);
   };
   window.__sheetRedraw = () => { if (document.querySelector(".sheet-bg")) draw(); };
@@ -1489,6 +1523,12 @@ function runScheduleNow(id) {
 async function runScheduled(id) {
   const list = schedules(), s = list.find(x => x.id === id);
   if (!s) { B.scheduledDone("", "Scheduled chat", "That scheduled chat no longer exists."); return; }
+  if (s.kind === "reminder") {
+    s.last_run = now(); s.enabled = false; s.next_run = 0; saveSchedules(list);
+    B.notify("reminder-" + s.id, "", "Reminder", s.prompt);
+    B.scheduledDone("", "", "");  // nothing more to do: lets the background runner stop
+    return;
+  }
   // Work out the next run first, so a crash part way through can't make it repeat.
   s.last_run = now();
   if (s.repeat === "once") s.enabled = false;
@@ -1500,16 +1540,165 @@ async function runScheduled(id) {
   catch (e) { B.scheduledDone(chat.id, s.title, e.message); }
 }
 let lastError = "";
+function plainText(t) { return t.replace(/[#*_`>|]/g, "").replace(/\n{2,}/g, "\n").trim(); }
 function onJobDone(c, stopped) {
   if (phoneSession) { phoneSession = false; B.keepAlive(false); B.bringToFront(); }
   const s = window.__scheduledRun;
-  if (!s) return;
+  if (!s) {
+    // You asked, then left the app: ping when the answer is ready.
+    if (!stopped && !B.isBackground() && B.onScreen && !B.onScreen()) {
+      const last = [...c.messages].reverse().find(m => m.role === "assistant" && m.content);
+      if (last) B.notify("reply-" + c.id, c.id, c.title || "Desk Agent", "Your answer is ready: " + plainText(last.content).slice(0, 300));
+    }
+    return;
+  }
   window.__scheduledRun = null;
   const last = [...c.messages].reverse().find(m => m.role === "assistant" && m.content);
-  const plain = (last ? last.content : lastError || "Finished, with no answer.").replace(/[#*_`>|]/g, "").replace(/\n{2,}/g, "\n").trim();
+  const plain = plainText(last ? last.content : lastError || "Finished, with no answer.");
   B.scheduledDone(c.id, s.title, plain.slice(0, 700));
 }
 window.onResumeApp = () => { if (window.__sheetRedraw) window.__sheetRedraw(); renderSide(); };
+
+// ------------------------------------------------ reminders and the daily briefing
+
+function setReminder(a) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a.date) || !/^\d{1,2}:\d{2}$/.test(a.time)) return "ERROR: date must be YYYY-MM-DD and time HH:MM.";
+  const time = a.time.padStart(5, "0");
+  const item = {id: uid(), kind: "reminder", title: "Reminder: " + a.text, prompt: a.text, repeat: "once", date: a.date, time, enabled: true, created: now()};
+  item.next_run = nextRun(item);
+  if (!item.next_run) return `ERROR: ${a.date} ${time} has already passed. Check the current time above.`;
+  const list = schedules(); list.push(item); saveSchedules(list);
+  if (!B.notificationsAllowed()) B.askForNotifications();
+  return `Reminder set for ${new Date(item.next_run).toLocaleString("en-GB", {weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit"})}.`;
+}
+const BRIEFING = {title: "Daily briefing", repeat: "daily", time: "07:30", agent: "researcher",
+  prompt: "Give me my morning briefing. Start with today's date. Search the web for today's weather where I live (use what you know about me, or London if you don't know) and the top three UK news stories. Keep it short: a few lines each."};
+function addBriefing() {
+  const list = schedules();
+  const item = {...BRIEFING, id: uid(), enabled: true, created: now(), day: 1, date: ""};
+  if (!allAgents()[item.agent]) item.agent = "assistant";
+  item.next_run = nextRun(item); list.push(item); saveSchedules(list);
+  if (!B.notificationsAllowed()) B.askForNotifications();
+  toast("Daily briefing at 07:30. Tap it to change the time."); showSchedules();
+}
+
+// Desk OS and the browser have no alarms, so while the page is open it checks every
+// 30 seconds for a reminder or scheduled chat that is due.
+if (!window.Android) setInterval(() => {
+  const list = schedules(), due = list.filter(x => x.enabled && x.next_run && x.next_run <= Date.now());
+  for (const s of due) {
+    if (s.kind === "reminder") { s.enabled = false; s.next_run = 0; saveSchedules(list); B.notify("reminder-" + s.id, "", "Reminder", s.prompt); }
+    else if (!job) {
+      s.last_run = now(); s.next_run = nextRun(s, Date.now() + 60000); saveSchedules(list);
+      window.__scheduledRun = s; const c = scheduleChat(s, list); openChat(c.id);
+      startJob(c, {text: s.prompt, style: settings.style}).then(() => { renderChat(); startLive(); }, e => B.notify(s.id, c.id, s.title, e.message));
+    }
+  }
+}, 30000);
+
+// ------------------------------------------------ connectors (MCP servers)
+// Each connector is an MCP server at a web address (Streamable HTTP), with an
+// optional key. Its tools are offered to the AI in the main chat.
+
+let mcpTools = [];          // [{server, tool, def}]
+const mcpSessions = {};     // server id -> {session, at}
+const MCP_VERSION = "2025-06-18", MCP_TOOL_LIMIT = 24;
+function connectors() { return readJSON("connectors.json", []); }
+function saveConnectors(list) { writeJSON("connectors.json", list); mcpTools = []; for (const k in mcpSessions) delete mcpSessions[k]; }
+
+async function mcpRequest(server, method, params, notify = false) {
+  const headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"};
+  if (server.key) headers.Authorization = "Bearer " + server.key;
+  const sess = mcpSessions[server.id];
+  if (sess?.session) headers["Mcp-Session-Id"] = sess.session;
+  if (method !== "initialize") headers["MCP-Protocol-Version"] = MCP_VERSION;
+  const id = notify ? undefined : ++seq;
+  const raw = await bridge("httpPost", {url: server.url, headers, body: JSON.stringify({jsonrpc: "2.0", ...(notify ? {} : {id}), method, ...(params ? {params} : {})})});
+  const res = JSON.parse(raw);
+  if (res.status === 401 || res.status === 403) throw new Error(`${server.name} wants a key (sign in), or the key is wrong.`);
+  if (res.status === 404 && sess) { delete mcpSessions[server.id]; throw new Error(`${server.name} ended the session. Try again.`); }
+  if (res.status >= 400) throw new Error(`${server.name} said ${res.status}: ${res.body.slice(0, 200)}`);
+  if (res.session) mcpSessions[server.id] = {session: res.session};
+  if (notify) return null;
+  // The answer is plain JSON, or a stream of events with the answer in one of them.
+  let messages = [];
+  if (res.type.includes("event-stream")) {
+    for (const line of res.body.split(/\r?\n/)) if (line.startsWith("data:")) { try { messages.push(JSON.parse(line.slice(5))); } catch (e) {} }
+  } else { try { const j = JSON.parse(res.body); messages = Array.isArray(j) ? j : [j]; } catch (e) { throw new Error(`${server.name} didn't answer like an MCP server.`); } }
+  const msg = messages.find(m => m.id === id);
+  if (!msg) throw new Error(`${server.name} gave no answer.`);
+  if (msg.error) throw new Error(`${server.name}: ${msg.error.message || JSON.stringify(msg.error)}`);
+  return msg.result;
+}
+async function mcpConnect(server) {
+  const init = await mcpRequest(server, "initialize", {protocolVersion: MCP_VERSION, capabilities: {}, clientInfo: {name: "Desk Agent", version: "1"}});
+  await mcpRequest(server, "notifications/initialized", null, true);
+  const tools = []; let cursor;
+  for (let page = 0; page < 5; page++) {
+    const r = await mcpRequest(server, "tools/list", cursor ? {cursor} : {});
+    tools.push(...(r.tools || [])); cursor = r.nextCursor; if (!cursor) break;
+  }
+  return {name: init?.serverInfo?.name || server.name, tools};
+}
+const mcpName = (server, tool) => (server.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 20) + "__" + tool.name.replace(/[^a-zA-Z0-9_-]/g, "_")).slice(0, 64);
+// Connects to every switched on connector (once per app run) and collects their tools.
+async function mcpLoad(c) {
+  const list = connectors().filter(x => x.enabled !== false);
+  if (!list.length) { mcpTools = []; return; }
+  if (mcpTools.length && list.every(x => mcpSessions[x.id])) return;
+  const all = [];
+  for (const server of list) {
+    try {
+      const {tools} = await mcpConnect(server);
+      for (const tool of tools) all.push({server, tool, def: {type: "function", function: {name: mcpName(server, tool),
+        description: (tool.description || tool.title || tool.name).slice(0, 300), parameters: tool.inputSchema || {type: "object", properties: {}}}}});
+    } catch (e) { if (c) emit({type: "status", chat: c.id, text: `Couldn't reach ${server.name}: ${e.message}`}); }
+  }
+  mcpTools = all.slice(0, MCP_TOOL_LIMIT);  // small models get confused by too many tools
+}
+async function mcpCall(t, args) {
+  const r = await mcpRequest(t.server, "tools/call", {name: t.tool.name, arguments: args});
+  const text = (r.content || []).map(x => x.type === "text" ? x.text : x.type === "resource" ? (x.resource?.text || x.resource?.uri || "") : `[${x.type}]`).join("\n").trim()
+    || (r.structuredContent ? JSON.stringify(r.structuredContent) : "Done, with nothing to show.");
+  return r.isError ? "ERROR: " + text : text;
+}
+
+function showConnectors() {
+  const list = connectors();
+  sheet(`<h2>Connectors</h2><p class="sub">Let the AI use other services. Add one by its MCP address.</p>
+    <div class="list">${list.map(x => `<div class="item"><span class="grow" onclick="editConnector('${x.id}')" style="cursor:pointer">${esc(x.name)}<small>${esc(x.url)}</small></span>
+      ${toggle("cn-" + x.id, x.enabled !== false).replace("<input", `<input onchange="toggleConnector('${x.id}', this.checked)"`)}</div>`).join("")
+      || `<div class="item"><span class="grow">None yet</span></div>`}</div>
+    <div class="buttons"><button class="tonal left" onclick="editConnector()">Add</button><button class="text" onclick="closeSheet()">Done</button></div>`);
+}
+function toggleConnector(id, on) { const list = connectors(); list.find(x => x.id === id).enabled = on; saveConnectors(list); }
+function editConnector(id) {
+  const x = id ? connectors().find(c => c.id === id) : {name: "", url: "", key: ""};
+  sheet(`<h2>${id ? "Edit connector" : "Add a connector"}</h2>
+    <div class="field"><label>Name</label><input type="text" id="cnName" value="${esc(x.name)}" placeholder="For example: My notes"></div>
+    <div class="field"><label>Address</label><input type="url" id="cnUrl" value="${esc(x.url)}" placeholder="https://example.com/mcp"></div>
+    <div class="field"><label>Key (if it needs one)</label><input type="password" id="cnKey" value="${esc(x.key || "")}" placeholder="Leave empty if none"></div>
+    <p class="sub" id="cnResult"></p>
+    <div class="buttons">${id ? `<button class="danger left" onclick="deleteConnector('${id}')">Delete</button>` : ""}
+      <button class="text" onclick="showConnectors()">Cancel</button><button class="filled" id="cnSave">Check and save</button></div>`, bg => {
+    bg.querySelector("#cnSave").onclick = async () => {
+      const url = $("cnUrl").value.trim();
+      if (!/^https:\/\//.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)/.test(url)) { toast("The address must start with https://"); return; }
+      const server = {id: id || uid(), name: $("cnName").value.trim() || new URL(url).hostname, url, key: $("cnKey").value.trim(), enabled: true};
+      $("cnResult").textContent = "Checking...";
+      try {
+        delete mcpSessions[server.id];
+        const info = await mcpConnect(server);
+        const list = connectors().filter(c => c.id !== server.id); list.push(server); saveConnectors(list);
+        toast(`${server.name} connected: ${info.tools.length} tools`); showConnectors();
+      } catch (e) { $("cnResult").textContent = "Couldn't connect: " + e.message; }
+    };
+  });
+}
+function deleteConnector(id) {
+  if (!confirm("Remove this connector?")) return;
+  saveConnectors(connectors().filter(x => x.id !== id)); showConnectors();
+}
 
 // ------------------------------------------------ start
 

@@ -25,6 +25,8 @@ import org.json.JSONObject;
  * searches the AI makes.
  */
 public class MainActivity extends Activity {
+    /** Whether the app is on screen right now; read by Bridge.onScreen(). */
+    static volatile boolean onScreen;
     private WebView web;
     private Bridge bridge;
     private ValueCallback<Uri[]> filePicked;
@@ -112,8 +114,15 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        onScreen = false;
+        super.onPause();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        onScreen = true;
         // Coming back from Settings: let the page notice phone control or alarms were switched on.
         if (pageReady) web.evaluateJavascript("window.onResumeApp && onResumeApp()", null);
     }
