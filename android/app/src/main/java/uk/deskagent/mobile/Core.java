@@ -164,6 +164,21 @@ final class Core {
         }
     }
 
+    /** The last part of the engine's own log, for the Dashboard when something's wrong. */
+    String engineLog() {
+        try {
+            String s = new String(Files.readAllBytes(new File(app.getFilesDir(), "engine.log").toPath()), StandardCharsets.UTF_8);
+            return s.length() > 6000 ? s.substring(s.length() - 6000) : s;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** Whether the engine is running now (not just whether a model was loaded once). */
+    synchronized boolean engineRunning() {
+        return engine != null && engine.isAlive();
+    }
+
     private static String tail(File f) {
         try {
             String s = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);

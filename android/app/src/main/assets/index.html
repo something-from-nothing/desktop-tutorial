@@ -172,6 +172,39 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 #stopBtn { background: var(--text); color: var(--accent-text); }
 
 /* ---- full screen view for finished work ---- */
+#dash { position: fixed; inset: 0; z-index: 41; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+#dash.open { display: flex; }
+#dash .bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 8px; min-height: 56px; }
+#dash .bar b { flex: 1; font-weight: 500; font-size: 17px; }
+#dash .body { flex: 1; overflow: auto; border-top: 1px solid var(--line); padding: 16px max(16px, env(safe-area-inset-right)) 32px max(16px, env(safe-area-inset-left)); }
+.dash { max-width: 760px; margin: 0 auto; display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+.dash h3 { margin: 0 0 8px; font-size: 13px; font-weight: 500; color: var(--dim); letter-spacing: .04em; text-transform: uppercase; }
+.now { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.now .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; display: grid; gap: 4px; }
+.now .tile small { color: var(--dim); font-size: 12px; }
+.now .tile b { font-weight: 500; font-size: 15px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.now .tile b span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
+.dot.good { background: #2e9d62; } .dot.warn { background: #d4900f; } .dot.bad { background: #d23b30; } .dot.busy { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.checks .item { align-items: flex-start; }
+.checks .item .grow small { white-space: normal; }
+.chip { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px; background: var(--raised); color: var(--dim); white-space: nowrap; }
+.chip.good { background: #dff3e7; color: #17663c; } .chip.warn { background: #fbefd4; color: #845a07; } .chip.bad { background: #fbe0de; color: #9c241b; }
+@media (prefers-color-scheme: dark) { .chip.good { background: #173a26; color: #8fdcb0; } .chip.warn { background: #3d2f12; color: #f0c56b; } .chip.bad { background: #43201d; color: #f3a29b; } }
+.figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.figures div { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
+.figures b { display: block; font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.figures small { color: var(--dim); font-size: 12px; }
+.bars { display: grid; gap: 8px; }
+.bars .row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 40px; align-items: center; gap: 10px; font-size: 14px; }
+.bars .track { height: 8px; background: var(--raised); border-radius: 4px; overflow: hidden; }
+.bars .track div { height: 100%; background: var(--accent); border-radius: 4px; }
+.bars .row span:last-child { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+.chatlist .item { cursor: pointer; }
+.chatlist .meta { color: var(--faint); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.problems pre, .englog { margin: 0; font: 12px/1.5 "Roboto Mono", ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; color: var(--dim); }
+.englog { max-height: 260px; overflow: auto; background: var(--code); padding: 10px 12px; border-radius: 12px; }
+@media (max-width: 420px) { .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 #code { position: fixed; inset: 0; z-index: 41; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 #code.open { display: flex; }
 #code .bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 56px; }
@@ -257,6 +290,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     <div id="chats"></div>
   </div>
   <div class="foot">
+    <button class="row-btn" onclick="closeDrawer(); openDash()"><svg class="i"><use href="#i-chart"/></svg><span>Dashboard</span></button>
     <button class="row-btn" onclick="closeDrawer(); showCodeProjects()"><svg class="i"><use href="#i-code"/></svg><span>Code</span></button>
     <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
     <button class="row-btn" onclick="closeDrawer(); showModels()"><svg class="i"><use href="#i-chip"/></svg><span>Models</span></button>
@@ -295,6 +329,15 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     </div>
   </div>
 </main>
+
+<aside id="dash">
+  <div class="bar">
+    <button class="icon-btn" onclick="closeDash()" aria-label="Close"><svg class="i"><use href="#i-close"/></svg></button>
+    <b>Dashboard</b>
+    <button class="tonal" onclick="runChecks()">Check everything</button>
+  </div>
+  <div class="body" id="dashBody"></div>
+</aside>
 
 <aside id="code">
   <div class="bar">
@@ -340,6 +383,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
   <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></symbol>
@@ -456,6 +500,7 @@ const B = window.Android || (() => {
     askForNotifications: () => {}, schedulesChanged: () => { window.__schedulesChanged = (window.__schedulesChanged || 0) + 1; },
     scheduledDone: (chatId, title, text) => { window.__scheduledDone = {chatId, title, text}; },
     onScreen: () => !document.hidden,
+    engineRunning: () => true, engineLog: () => "", allowed: () => false,
     // Desk OS has no notification shade: show it on screen, and as a system notification if allowed.
     notify: (key, chatId, title, text) => {
       window.__notified = [...(window.__notified || []), {key, chatId, title, text}];
@@ -941,6 +986,7 @@ function closeDrawer() { document.body.classList.remove("drawer"); }
 // Android's back button: close whatever is on top first.
 window.onBack = () => {
   if (document.querySelector(".sheet-bg")) { closeSheet(); return true; }
+  if ($("dash").classList.contains("open")) { closeDash(); return true; }
   if ($("panel").classList.contains("open")) { closePanel(); return true; }
   if ($("code").classList.contains("open")) { if (codeView.path !== null) { codeView.path = null; codeTab("files"); } else closeCode(); return true; }
   if (document.body.classList.contains("drawer")) { closeDrawer(); return true; }
@@ -1096,6 +1142,135 @@ function toolHtml(call, result) {
   }
   return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
 }
+// ------------------------------------------------ Dashboard
+// Everything about this copy of the app at a glance: what it's doing, whether each part
+// works, the chats, usage, models, scheduled chats, connectors and recent problems.
+
+let dashTimer = null, checkResults = {};
+function openDash() { $("dash").classList.add("open"); drawDash(); clearInterval(dashTimer); dashTimer = setInterval(() => $("dash").classList.contains("open") ? drawNow() : clearInterval(dashTimer), 2000); }
+function closeDash() { $("dash").classList.remove("open"); clearInterval(dashTimer); }
+const ago = iso => {
+  if (!iso) return "never";
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(iso).toLocaleDateString("en-GB", {day: "numeric", month: "short"});
+};
+const gb = n => (n / 1e9).toFixed(n < 1e10 ? 1 : 0) + " GB";
+function nowTiles() {
+  const loaded = (window.Android ? B.loaded() : engineModel) || null, running = window.Android ? B.engineRunning() : !!enginePort;
+  const busyChat = job && Store.getChat(job.chatId);
+  const active = Object.entries(downloads).filter(([, d]) => !d.status);
+  const tile = (label, dot, value) => `<div class="tile"><small>${label}</small><b><i class="dot ${dot}"></i><span>${esc(value)}</span></b></div>`;
+  return `<div class="now">
+    ${tile("AI", loaded && running ? "good" : loaded ? "warn" : "", loaded && running ? `${CATALOG[loaded]?.label || loaded} loaded` : loaded ? "Stopped, starts when needed" : "Not loaded yet")}
+    ${tile("Working on", job ? "busy" : "", job ? `A reply in "${busyChat?.title || "a chat"}"` + (queue.length ? `, ${queue.length} waiting` : "") : "Nothing")}
+    ${tile("Downloads", active.length ? "busy" : "", active.length ? active.map(([k, d]) => `${CATALOG[k]?.label || k} ${d.total ? Math.round(100 * d.done / d.total) : 0}%`).join(", ") : "None")}
+    ${tile("Internet", navigator.onLine ? "good" : "warn", navigator.onLine ? "Online" : "Offline: the AI still works")}
+  </div>`;
+}
+function drawNow() { const el = $("dashNow"); if (el) el.innerHTML = nowTiles(); }
+
+// Each check: what it tests, and what to do if it fails.
+const CHECKS = [
+  {id: "engine", name: "The AI answers", test: async () => {
+    const ready = installed();
+    if (!ready.length) return ["bad", "No model yet. Open Models and get one."];
+    const key = ready.includes(settings.model) ? settings.model : ready.includes("general") ? "general" : ready[0];
+    const port = await loadModel(key);
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    return res.ok ? ["good", `${CATALOG[key]?.label || key} is loaded and answering.`] : ["bad", `The engine replied ${res.status}. Close and reopen the app.`];
+  }},
+  {id: "models", name: "Models on the phone", test: async () => {
+    const files = JSON.parse(B.models() || "{}"), keys = installed();
+    if (!keys.length) return ["bad", "None. Open Models to get one."];
+    const total = keys.reduce((n, k) => n + (files[k] || 0), 0);
+    const best = keys.includes("general") ? "" : window.Android && B.memory() >= 7e9 ? " Getting General would make it much smarter." : "";
+    return [best ? "warn" : "good", `${keys.map(k => CATALOG[k].label).join(", ")} (${gb(total)}).${best}`];
+  }},
+  {id: "space", name: "Free space", test: async () => {
+    const free = B.freeSpace();
+    return [free > 5e9 ? "good" : free > 1.5e9 ? "warn" : "bad", `${gb(free)} free${free < 5e9 ? ": bigger models may not fit" : ""}.`];
+  }},
+  {id: "web", name: "Web search", test: async () => {
+    if (!navigator.onLine) return ["warn", "Offline, so the AI can't search right now."];
+    const r = await webSearch("weather");
+    return r && r !== "No results." ? ["good", "Searching works."] : ["warn", "The search page gave no results. It may be busy."];
+  }},
+  {id: "lookups", name: "Weather, news and rates", test: async () => {
+    if (!navigator.onLine) return ["warn", "Offline."];
+    const w = await INFO_TOOLS.get_weather({place: "London"});
+    return w.startsWith("ERROR") ? ["warn", w.slice(7)] : ["good", "The free data sources answer."];
+  }},
+  {id: "notify", name: "Notifications", android: true, test: async () => B.notificationsAllowed() ? ["good", "Allowed."] : ["warn", "Off: you won't hear about finished replies, reminders or briefings. Open Scheduled to allow them."]},
+  {id: "alarms", name: "On time reminders", android: true, test: async () => B.exactAlarmsAllowed() ? ["good", "Allowed."] : ["warn", "Off: reminders and scheduled chats may be late. Open Scheduled to allow them."]},
+  {id: "phone", name: "Phone control", android: true, test: async () => B.phoneEnabled() ? ["good", "Switched on."] : ["", "Off. Only needed if you want it to use your apps."]},
+  {id: "calendar", name: "Calendar and contacts", android: true, test: async () => {
+    const c = B.allowed ? B.allowed("calendar") : false, p = B.allowed ? B.allowed("contacts") : false;
+    return c && p ? ["good", "Both allowed."] : ["", `${c ? "Calendar allowed" : "Calendar not allowed yet"}, ${p ? "contacts allowed" : "contacts not allowed yet"}. It asks the first time you need them.`];
+  }},
+  {id: "connectors", name: "Connectors", test: async () => {
+    const list = connectors().filter(x => x.enabled !== false);
+    if (!list.length) return ["", "None added."];
+    const out = [];
+    for (const server of list) { try { const {tools} = await mcpConnect(server); out.push(`${server.name}: ${tools.length} tools`); } catch (e) { out.push(`${server.name}: ${e.message}`); } }
+    return [out.every(x => / tools$/.test(x)) ? "good" : "bad", out.join(". ")];
+  }},
+];
+async function runChecks() {
+  checkResults = {};
+  for (const c of CHECKS) checkResults[c.id] = ["busy", "Checking..."];
+  drawChecks();
+  for (const c of CHECKS) {
+    if (c.android && !window.Android) { checkResults[c.id] = ["", "Only on the phone."]; drawChecks(); continue; }
+    try { checkResults[c.id] = await Promise.race([c.test(), new Promise((_, no) => setTimeout(() => no(new Error("No answer within 60 seconds.")), 60000))]); }
+    catch (e) { checkResults[c.id] = ["bad", e.message || String(e)]; noteProblem(`Check "${c.name}": ${e.message || e}`); }
+    drawChecks(); drawNow();
+  }
+}
+function drawChecks() {
+  const el = $("dashChecks"); if (!el) return;
+  const label = {good: "Working", warn: "Needs a look", bad: "Not working", busy: "Checking", "": "Info"};
+  el.innerHTML = CHECKS.filter(c => !c.android || window.Android).map(c => {
+    const [state, text] = checkResults[c.id] || [null, "Not checked yet. Tap Check everything."];
+    return `<div class="item"><span class="grow">${esc(c.name)}<small>${esc(text)}</small></span>${state === null ? "" : `<span class="chip ${state}">${label[state] ?? ""}</span>`}</div>`;
+  }).join("");
+}
+function drawDash() {
+  const st = stats(), chats = Store.listChats(), sched = schedules(), probs = readJSON("problems.json", []);
+  const files = JSON.parse(B.models() || "{}"), keys = installed(), builtIn = JSON.parse(B.builtInModels ? B.builtInModels() : "[]");
+  const messages = chats.reduce((n, c) => n + ((Store.getChat(c.id)?.messages || []).filter(m => m.role === "user").length), 0);
+  const uses = Object.entries(st.models || {}).sort((a, b) => b[1] - a[1]), top = uses[0]?.[1] || 1;
+  const log = window.Android && B.engineLog ? B.engineLog() : "";
+  $("dashBody").innerHTML = `<div class="dash">
+    <section><h3>Right now</h3><div id="dashNow">${nowTiles()}</div></section>
+    <section><h3>Health</h3><div class="list checks" id="dashChecks"></div></section>
+    <section><h3>Usage</h3><div class="figures">
+      <div><b>${(st.jobs || 0).toLocaleString()}</b><small>replies</small></div>
+      <div><b>${(st.words_written || 0).toLocaleString()}</b><small>words written</small></div>
+      <div><b>${chats.length.toLocaleString()}</b><small>chats</small></div>
+      <div><b>${messages.toLocaleString()}</b><small>messages sent</small></div>
+      <div><b>${codeProjects().length}</b><small>code projects</small></div>
+      <div><b>${ago(st.last_used)}</b><small>last reply</small></div>
+    </div></section>
+    ${uses.length ? `<section><h3>Models used</h3><div class="bars">${uses.map(([k, n]) => `<div class="row"><span>${esc(CATALOG[k]?.label || k)}</span><div class="track"><div style="width:${Math.round(100 * n / top)}%"></div></div><span>${n}</span></div>`).join("")}</div></section>` : ""}
+    <section><h3>Models on this device</h3><div class="list">${keys.map(k => `<div class="item"><span class="grow">${esc(CATALOG[k].label)}<small>${esc(CATALOG[k].detail)}${files[k] ? " · " + gb(files[k]) : ""}${builtIn.includes(k) ? " · built in" : ""}</small></span>${(window.Android ? B.loaded() : engineModel) === k ? `<span class="chip good">In use</span>` : ""}</div>`).join("") || `<div class="item"><span class="grow">None yet</span></div>`}</div></section>
+    <section><h3>Chats</h3><input type="search" id="dashSearch" placeholder="Search chats" oninput="drawDashChats()" style="margin-bottom:8px"><div class="list chatlist" id="dashChats"></div></section>
+    <section><h3>Scheduled</h3><div class="list">${sched.map(x => `<div class="item"><span class="grow">${esc(x.title)}<small>${describeSchedule(x)} · ${nextText(x)}${x.last_run ? " · last ran " + ago(x.last_run) : ""}</small></span><span class="chip ${x.enabled ? "good" : ""}">${x.enabled ? "On" : "Off"}</span></div>`).join("") || `<div class="item"><span class="grow">Nothing scheduled</span></div>`}</div></section>
+    <section><h3>Recent problems</h3><div class="list problems">${probs.slice(0, 10).map(p => `<div class="item"><span class="grow"><pre>${esc(p.text)}</pre><small>${ago(p.at)}</small></span></div>`).join("") || `<div class="item"><span class="grow">None. Problems show up here when something goes wrong.</span></div>`}</div>
+      ${probs.length ? `<div class="buttons" style="margin-top:8px"><button class="text" onclick="writeJSON('problems.json', []); drawDash()">Clear</button></div>` : ""}</section>
+    ${log ? `<section><h3>AI engine log</h3><details><summary class="sub" style="cursor:pointer">Show the last lines (for fixing problems)</summary><pre class="englog">${esc(log.split("\n").slice(-60).join("\n"))}</pre></details></section>` : ""}
+    <p class="sub">Settings: memory ${settings.learn ? "on" : "off"}, chat length ${settings.context === 4096 ? "short" : settings.context === 16384 ? "long" : "normal"}, ${settings.max_steps} steps per reply. First used ${new Date(st.first_used).toLocaleDateString("en-GB", {day: "numeric", month: "long", year: "numeric"})}.</p>
+  </div>`;
+  drawChecks(); drawDashChats();
+}
+function drawDashChats() {
+  const q = ($("dashSearch")?.value || "").toLowerCase(), agents = allAgents();
+  const rows = Store.listChats().map(c => Store.getChat(c.id) || c).filter(c => !q || (c.title || "").toLowerCase().includes(q) || (c.messages || []).some(m => typeof m.content === "string" && m.content.toLowerCase().includes(q)));
+  $("dashChats").innerHTML = rows.slice(0, 200).map(c => {
+    const n = (c.messages || []).filter(m => m.role === "user").length;
+    return `<div class="item" onclick="closeDash(); openChat('${c.id}')"><span class="grow">${esc(c.title || "New chat")}<small>${esc(c.code ? "Code project" : agents[c.agent]?.name || "Assistant")} · ${n} message${n === 1 ? "" : "s"}</small></span><span class="meta">${ago(c.updated || c.created)}</span></div>`;
+  }).join("") || `<div class="item"><span class="grow">${q ? "No chats match." : "No chats yet."}</span></div>`;
+}
+
 // ------------------------------------------------ Desk Agent Code
 // A code project is one saved file, code/ID.json: {id, name, files: {path: text}, chat}.
 // Its chat is a normal chat marked with code: ID, so it gets the file tools.
@@ -1608,7 +1783,17 @@ function stopJob() { if (job) job.controller.abort(); }
 
 // ------------------------------------------------ live updates while a reply is written
 
-function emit(ev) { onEvent(ev); }
+function emit(ev) {
+  if (ev.type === "error") noteProblem(ev.text, ev.chat);
+  onEvent(ev);
+}
+function noteProblem(text, chatId) {
+  try {
+    const list = readJSON("problems.json", []);
+    list.unshift({at: now(), text: String(text).slice(0, 400), chat: chatId || null});
+    writeJSON("problems.json", list.slice(0, 30));
+  } catch (e) {}
+}
 function startLive() { live = {el: document.createElement("div"), subs: {}, current: null, raw: ""}; live.el.className = "msg ai"; $("chat").appendChild(live.el); }
 function liveTarget(sub) {
   if (!sub) return live.el;

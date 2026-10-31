@@ -195,6 +195,22 @@ class Bridge {
     }
 
     @JavascriptInterface
+    public boolean engineRunning() {
+        return core.engineRunning();
+    }
+
+    @JavascriptInterface
+    public String engineLog() {
+        return core.engineLog();
+    }
+
+    /** For the Dashboard: has the user allowed the calendar or contacts? */
+    @JavascriptInterface
+    public boolean allowed(String what) {
+        return PhoneData.allowed(context, "calendar".equals(what) ? PhoneData.CALENDAR : PhoneData.CONTACTS);
+    }
+
+    @JavascriptInterface
     public String loaded() {
         return core.engineModel();
     }
