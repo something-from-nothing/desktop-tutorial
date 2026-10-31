@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Plain http only to the AI engine on the phone itself; everything else must be https. -->
+<!-- Plain http is allowed for the AI engine on the phone itself and for remote control,
+     which talks to Desk Agent on another device on your own Wi-Fi (its address isn't
+     known in advance). Websites the app reads are https. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="true" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>

@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
         bridge = new Bridge(this, web, false, () -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 2));
         bridge.askPermission = p -> requestPermissions(new String[]{p}, 3);
         Core.get(this).resumeDownloads();
+        RemoteServer.get(this).attach(web);
         web.addJavascriptInterface(bridge, "Android");
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -155,6 +156,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         bridge.detach();
+        RemoteServer.get(this).attach(null);  // remote requests get "open Desk Agent" until it's back
         // The engine keeps running only if a scheduled chat or phone control needs it.
         super.onDestroy();
     }

@@ -172,6 +172,11 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 #stopBtn { background: var(--text); color: var(--accent-text); }
 
 /* ---- full screen view for finished work ---- */
+#remoteView { position: fixed; inset: 0; z-index: 42; background: var(--bg); display: none; }
+#remoteView.open { display: block; }
+#remoteView iframe { width: 100%; height: 100%; border: 0; display: block; }
+.paircode { font: 500 40px/1 "Roboto Mono", ui-monospace, monospace; letter-spacing: .12em; text-align: center; padding: 18px 0 6px; font-variant-numeric: tabular-nums; }
+.pairaddr { text-align: center; font: 15px "Roboto Mono", ui-monospace, monospace; color: var(--dim); padding-bottom: 14px; word-break: break-all; }
 #dash { position: fixed; inset: 0; z-index: 41; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 #dash.open { display: flex; }
 #dash .bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 8px; min-height: 56px; }
@@ -290,6 +295,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     <div id="chats"></div>
   </div>
   <div class="foot">
+    <button class="row-btn" onclick="closeDrawer(); showRemote()"><svg class="i"><use href="#i-remote"/></svg><span>Remote control</span></button>
     <button class="row-btn" onclick="closeDrawer(); openDash()"><svg class="i"><use href="#i-chart"/></svg><span>Dashboard</span></button>
     <button class="row-btn" onclick="closeDrawer(); showCodeProjects()"><svg class="i"><use href="#i-code"/></svg><span>Code</span></button>
     <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
@@ -329,6 +335,10 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     </div>
   </div>
 </main>
+
+<aside id="remoteView">
+  <iframe id="remoteFrame" title="Remote control"></iframe>
+</aside>
 
 <aside id="dash">
   <div class="bar">
@@ -383,6 +393,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
   <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
   <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-remote" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2M3 9a9 9 0 0 1 0 6M21 9a9 9 0 0 0 0 6"/></symbol>
   <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   <symbol id="i-code" viewBox="0 0 24 24"><path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></symbol>
@@ -986,6 +997,7 @@ function closeDrawer() { document.body.classList.remove("drawer"); }
 // Android's back button: close whatever is on top first.
 window.onBack = () => {
   if (document.querySelector(".sheet-bg")) { closeSheet(); return true; }
+  if ($("remoteView").classList.contains("open")) { closeRemoteClient(); return true; }
   if ($("dash").classList.contains("open")) { closeDash(); return true; }
   if ($("panel").classList.contains("open")) { closePanel(); return true; }
   if ($("code").classList.contains("open")) { if (codeView.path !== null) { codeView.path = null; codeTab("files"); } else closeCode(); return true; }
@@ -1142,6 +1154,110 @@ function toolHtml(call, result) {
   }
   return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
 }
+// ------------------------------------------------ Remote control
+// This phone: other devices on the same Wi-Fi can use its Desk Agent once paired
+// (RemoteServer.java hands their requests to remoteRequest below).
+// Other devices: remote.html, the controller, opens over the app.
+
+let remoteLive = null;
+function showRemote() {
+  const st = window.Android ? JSON.parse(B.remoteStatus() || "{}") : null;
+  sheet(`<h2>Remote control</h2>
+    ${st ? `<p class="sub">Use this phone's Desk Agent from your computer or another device on the same Wi-Fi: its chats, sending messages, the Dashboard and scheduled chats.</p>
+      <div class="list"><label class="item"><span class="grow">Let other devices control this phone<small>${st.on ? "On. It stays on with the screen off, shown in your notifications." : "Off"}</small></span>${toggle("rcOn", st.on)}</label></div>
+      ${st.on ? `<div class="paircode">${esc(st.code || "")}</div>
+        <div class="pairaddr">${(st.addresses || []).map(esc).join("<br>") || "Connect to Wi-Fi to get an address"}</div>
+        <p class="sub">On your computer, open Desk Agent and press Phone. On another Android, open Remote control, then Control another device. Enter this address and code. Each code works once.</p>` : ""}
+      ${st.devices ? `<div class="list"><div class="item"><span class="grow">${st.devices} paired device${st.devices > 1 ? "s" : ""}<small>They can use this phone's Desk Agent while remote control is on.</small></span><button class="text" onclick="B.remoteForget(); showRemote(); toast('Removed. Each has to pair again.')">Remove all</button></div></div>` : ""}
+      <h3 style="margin-top:18px">Other devices</h3>` : `<p class="sub">Control Desk Agent on a phone or computer on the same Wi-Fi.</p>`}
+    <div class="list"><button class="item" onclick="openRemoteClient()"><span class="grow">Control another device<small>Pair with the code it shows.</small></span></button></div>
+    <div class="buttons"><button class="text" onclick="closeSheet()">Done</button></div>`, bg => {
+    const t = bg.querySelector("#rcOn");
+    if (t) t.onchange = () => {
+      if (t.checked) { const r = JSON.parse(B.remoteStart()); if (r.error) toast("Couldn't switch it on: " + r.error); }
+      else B.remoteStop();
+      showRemote();
+    };
+  });
+}
+window.onRemotePaired = () => { toast("A device paired with this phone"); if (document.querySelector(".paircode")) showRemote(); };
+function openRemoteClient() { closeSheet(); $("remoteFrame").src = "remote.html"; $("remoteView").classList.add("open"); }
+function closeRemoteClient() { $("remoteView").classList.remove("open"); $("remoteFrame").src = "about:blank"; }
+addEventListener("message", e => { if (e.data === "remote:close") closeRemoteClient(); });
+
+// What another device sees: plain text versions of chats, the state and the schedules.
+function remoteChat(c, full) {
+  const out = {id: c.id, title: c.title || "New chat", agent: allAgents()[c.agent]?.name || "Assistant", updated: c.updated || c.created,
+    messages: (c.messages || []).filter(m => m.role === "user").length, busy: !!job && job.chatId === c.id};
+  if (!full) return out;
+  out.items = [];
+  for (const m of c.messages || []) {
+    if (m.role === "user") out.items.push({role: "user", text: typeof m.content === "string" ? m.content : "", files: (m.attachments || []).map(a => a.name)});
+    else if (m.role === "assistant") {
+      const steps = (m.tool_calls || []).map(t => { let a = {}; try { a = JSON.parse(t.function.arguments || "{}"); } catch (e) {} return toolLabel(t.function.name, a); });
+      if (m.content || steps.length) out.items.push({role: "assistant", text: m.content || "", steps});
+    }
+  }
+  if (out.busy && remoteLive && remoteLive.chat === c.id) out.live = remoteLive.text.replace(/<think>[\s\S]*?(<\/think>|$)/g, "");
+  out.waiting = queue.filter(q => q.chatId === c.id).map(q => q.text);
+  return out;
+}
+function refreshIfShowing(id) { if (chat && chat.id === id) { chat = Store.getChat(id) || chat; renderChat(); renderOpts(); if (job && job.chatId === id) startLive(); } renderSide(); }
+async function remoteRequest(id, method, path, raw) {
+  let body = {};
+  try { body = raw ? JSON.parse(raw) : {}; } catch (e) {}
+  const reply = (status, obj) => B.remoteReply(id, status, JSON.stringify(obj));
+  try {
+    const parts = path.split("?")[0].split("/").filter(Boolean).slice(1);  // after "api"
+    const [what, key, action] = parts;
+    if (method === "GET" && what === "state") {
+      const st = stats();
+      return reply(200, {device: "Desk Agent", model: B.loaded() || engineModel || null, models: installed().map(k => ({key: k, label: CATALOG[k].label, detail: CATALOG[k].detail})),
+        working: job ? remoteChat(Store.getChat(job.chatId) || {id: job.chatId}, false) : null, waiting: queue.length, online: navigator.onLine,
+        downloads: Object.entries(downloads).filter(([, d]) => !d.status).map(([k, d]) => ({model: CATALOG[k]?.label || k, percent: d.total ? Math.round(100 * d.done / d.total) : 0})),
+        stats: {replies: st.jobs || 0, words: st.words_written || 0, chats: Store.listChats().length, last_used: st.last_used || null, since: st.first_used},
+        problems: readJSON("problems.json", []).slice(0, 5), free_space: B.freeSpace()});
+    }
+    if (what === "agents" && method === "GET") return reply(200, Object.entries(allAgents()).map(([k, a]) => ({id: k, name: a.name, blurb: a.blurb || ""})));
+    if (what === "chats") {
+      if (method === "GET" && !key) return reply(200, Store.listChats().slice(0, 300).map(c => remoteChat(Store.getChat(c.id) || c, false)));
+      if (method === "POST" && !key) {
+        const c = Store.newChat(null, allAgents()[body.agent] ? body.agent : "assistant");
+        renderSide(); return reply(200, remoteChat(c, true));
+      }
+      const c = Store.getChat(key);
+      if (!c) return reply(404, {error: "That chat isn't on the phone any more."});
+      if (method === "GET" && !action) return reply(200, remoteChat(c, true));
+      if (method === "POST" && action === "send") {
+        const text = String(body.text || "").trim();
+        if (!text) return reply(400, {error: "Type a message first."});
+        if (job) { queue.push({chatId: c.id, text, attachments: []}); renderQueue(); return reply(200, {queued: true}); }
+        await startJob(c, {text, attachments: [], style: settings.style, think: settings.think});
+        refreshIfShowing(c.id);
+        return reply(200, {started: true});
+      }
+      if (method === "DELETE" && !action) { Store.deleteChat(c.id); if (chat && chat.id === c.id) { chat = null; renderChat(); } renderSide(); return reply(200, {deleted: true}); }
+    }
+    if (what === "stop" && method === "POST") { if (job) job.controller.abort(); return reply(200, {stopped: true}); }
+    if (what === "schedules") {
+      const list = schedules();
+      if (method === "GET") return reply(200, list.map(x => ({id: x.id, title: x.title, prompt: x.prompt, when: describeSchedule(x), next: nextText(x), enabled: x.enabled, last_run: x.last_run || null})));
+      if (method === "POST" && !key) {
+        if (!String(body.prompt || "").trim()) return reply(400, {error: "Say what to ask."});
+        const item = {id: uid(), enabled: true, created: now(), title: String(body.title || "").trim() || String(body.prompt).split(/\s+/).slice(0, 5).join(" "), prompt: String(body.prompt),
+          repeat: REPEATS[body.repeat] ? body.repeat : "daily", time: /^\d{1,2}:\d{2}$/.test(body.time || "") ? body.time.padStart(5, "0") : "07:00", day: +body.day || 1, date: body.date || "", agent: "assistant"};
+        item.next_run = nextRun(item); list.push(item); saveSchedules(list);
+        return reply(200, {id: item.id, next: nextText(item)});
+      }
+      const s = list.find(x => x.id === key);
+      if (!s) return reply(404, {error: "That scheduled chat isn't there any more."});
+      if (method === "POST") { if ("enabled" in body) { s.enabled = !!body.enabled; s.next_run = nextRun(s); } saveSchedules(list); return reply(200, {next: nextText(s)}); }
+      if (method === "DELETE") { saveSchedules(list.filter(x => x.id !== key)); return reply(200, {deleted: true}); }
+    }
+    reply(404, {error: "Not something the phone knows how to do."});
+  } catch (e) { reply(500, {error: e.message || String(e)}); }
+}
+
 // ------------------------------------------------ Dashboard
 // Everything about this copy of the app at a glance: what it's doing, whether each part
 // works, the chats, usage, models, scheduled chats, connectors and recent problems.
@@ -1788,6 +1904,9 @@ function stopJob() { if (job) job.controller.abort(); }
 
 function emit(ev) {
   if (ev.type === "error") noteProblem(ev.text, ev.chat);
+  if (!ev.sub && ev.type === "assistant_start") remoteLive = {chat: ev.chat, text: ""};
+  if (!ev.sub && ev.type === "token" && remoteLive && remoteLive.chat === ev.chat) remoteLive.text += ev.text;
+  if (ev.type === "done") remoteLive = null;
   onEvent(ev);
 }
 function noteProblem(text, chatId) {

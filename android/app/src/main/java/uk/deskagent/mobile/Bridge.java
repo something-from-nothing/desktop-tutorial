@@ -204,6 +204,45 @@ class Bridge {
         return core.engineLog();
     }
 
+    // ------------------------------------------------ remote control
+
+    /** Switches remote control on and returns the address and pairing code to show. */
+    @JavascriptInterface
+    public String remoteStart() {
+        try {
+            String s = RemoteServer.get(context).start().toString();
+            keepAliveFor("Remote control is on");  // keeps the app answering with the screen off
+            return s;
+        } catch (Exception e) {
+            return "{\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}";
+        }
+    }
+
+    @JavascriptInterface
+    public void remoteStop() {
+        RemoteServer.get(context).stop();
+        keepAlive(false);
+    }
+
+    @JavascriptInterface
+    public String remoteStatus() {
+        try {
+            return RemoteServer.get(context).status().toString();
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    @JavascriptInterface
+    public void remoteForget() {
+        RemoteServer.get(context).forgetDevices();
+    }
+
+    @JavascriptInterface
+    public void remoteReply(String id, int status, String body) {
+        RemoteServer.get(context).reply(id, status, body);
+    }
+
     /** For the Dashboard: has the user allowed the calendar or contacts? */
     @JavascriptInterface
     public boolean allowed(String what) {
@@ -236,8 +275,16 @@ class Bridge {
     /** Keeps the app running while the AI uses other apps, with a Stop button in the notification. */
     @JavascriptInterface
     public void keepAlive(boolean on) {
-        Intent i = new Intent(context, RunService.class).setAction(on ? RunService.ACTION_KEEP_ALIVE : RunService.ACTION_STOP);
-        if (on) context.startForegroundService(i); else context.startService(i);
+        // Remote control needs the app kept running too, so it outlasts phone control.
+        if (!on && RemoteServer.get(context).running()) { keepAliveFor("Remote control is on"); return; }
+        if (on) keepAliveFor(null);
+        else context.startService(new Intent(context, RunService.class).setAction(RunService.ACTION_STOP));
+    }
+
+    private void keepAliveFor(String text) {
+        Intent i = new Intent(context, RunService.class).setAction(RunService.ACTION_KEEP_ALIVE);
+        if (text != null) i.putExtra("text", text);
+        context.startForegroundService(i);
     }
 
     /**

@@ -48,7 +48,8 @@ public class RunService extends Service {
             if (hidden == null) runNext();
         } else if (ACTION_KEEP_ALIVE.equals(action)) {
             keepAlive = true;
-            showNotification("Desk Agent is using your phone");
+            String text = intent.getStringExtra("text");
+            showNotification(text != null ? text : "Desk Agent is using your phone");
         } else if (ACTION_STOP_JOB.equals(action)) {
             try {
                 JSONObject ev = new JSONObject().put("type", "stop");

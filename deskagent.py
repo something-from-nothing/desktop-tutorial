@@ -1317,6 +1317,8 @@ class Server:
                 server.hub.last_seen = time.time()
                 if method == "GET" and url.path == "/":
                     return self._send(200, PAGE.replace("__TOKEN__", server.token), "text/html")
+                if method == "GET" and url.path == "/remote":
+                    return self._send(200, remote_page(), "text/html")
                 if method == "GET" and url.path == "/api/events":
                     return self._events()
                 body = {}
@@ -1575,6 +1577,15 @@ def export_markdown(chat) -> str:
 
 # ---------------------------------------------------------------- the window
 
+def remote_page():
+    """The phone remote control page, shared with the Android app (bundled next to the EXE)."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    for p in (base / "remote.html", base / "android/app/src/main/assets/remote.html"):
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    return "<p>The remote control page is missing from this install.</p>"
+
+
 def find_browser() -> str | None:
     """Edge comes with Windows; its app mode gives a plain window with no tabs or address bar."""
     candidates = [
@@ -1818,6 +1829,7 @@ ol.steps li { margin: 6px 0; }
     <button onclick="showModels()">Models</button>
     <button onclick="showMemory()">Memory</button>
     <button onclick="showSettings()">Settings</button>
+    <button onclick="window.open('/remote?t=' + TOKEN, 'deskremote', 'width=480,height=820')" title="Use Desk Agent on your phone from here">Phone</button>
     <div class="stats" id="stats"></div>
   </div>
 </nav>

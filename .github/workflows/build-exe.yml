@@ -34,6 +34,7 @@ jobs:
           pyinstaller --noconfirm --onedir --windowed --name DeskAgent
           --icon icon.ico
           --collect-data jsonschema_specifications --hidden-import pypdf
+          --add-data "android/app/src/main/assets/remote.html;."
           deskagent.py
       - name: Add the llama.cpp engine
         env:
