@@ -3,6 +3,10 @@ package uk.deskagent.dashboard;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
+import android.graphics.drawable.Icon;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
@@ -69,6 +73,29 @@ public class MainActivity extends Activity {
         setContentView(web);
         if (state != null) web.restoreState(state);
         else web.loadUrl("file:///android_asset/remote.html?app=dashboard");
+        offerHomeScreenIcon();
+    }
+
+    /**
+     * The Pixel launcher only puts Play Store installs on the home screen, so the first
+     * time it opens it asks to add its own icon there (the same as Desk Agent does).
+     */
+    private void offerHomeScreenIcon() {
+        SharedPreferences prefs = getSharedPreferences("app", MODE_PRIVATE);
+        if (prefs.getBoolean("icon_offered", false)) return;
+        prefs.edit().putBoolean("icon_offered", true).apply();
+        try {
+            ShortcutManager sm = getSystemService(ShortcutManager.class);
+            if (sm == null || !sm.isRequestPinShortcutSupported()) return;
+            Intent open = new Intent(this, MainActivity.class).setAction(Intent.ACTION_MAIN);
+            sm.requestPinShortcut(new ShortcutInfo.Builder(this, "home")
+                    .setShortLabel("Dashboard")
+                    .setLongLabel("Desk Agent Dashboard")
+                    .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+                    .setIntent(open)
+                    .build(), null);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
