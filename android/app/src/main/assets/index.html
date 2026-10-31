@@ -172,6 +172,29 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
 #stopBtn { background: var(--text); color: var(--accent-text); }
 
 /* ---- full screen view for finished work ---- */
+#code { position: fixed; inset: 0; z-index: 41; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+#code.open { display: flex; }
+#code .bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; min-height: 56px; }
+#code .bar b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+#code .body { flex: 1; overflow: auto; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
+#codebar { display: flex; align-items: center; gap: 6px; padding: 0 12px 6px; }
+#codebar[hidden] { display: none; }
+#codebar span { flex: 1; min-width: 0; font-size: 13px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#codebar button { min-height: 32px; padding: 4px 14px; font-size: 14px; }
+.files { padding: 12px 16px; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.files .actions-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.file-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; }
+.file-row .grow { flex: 1; min-width: 0; font-family: "Roboto Mono", ui-monospace, monospace; font-size: 14px; overflow: hidden; text-overflow: ellipsis; }
+.file-row small { color: var(--faint); font-size: 12px; }
+.editor { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.editor .ebar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.editor .ebar input { flex: 1; font-family: "Roboto Mono", ui-monospace, monospace; font-size: 14px; padding: 6px 10px; }
+.editor textarea { flex: 1; min-height: 50vh; border: 0; border-radius: 0; resize: none; font: 13px/1.5 "Roboto Mono", ui-monospace, monospace; padding: 12px 14px; white-space: pre; overflow: auto; tab-size: 2; background: var(--code); }
+.runout { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.runout .rbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.runout .rbar select { width: auto; flex: 1; min-width: 140px; }
+.runout iframe { flex: 1; width: 100%; border: 0; background: #fff; min-height: 50vh; }
+.runout pre { margin: 0; padding: 12px 14px; font: 13px/1.5 "Roboto Mono", ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; flex: 1; overflow: auto; }
 #panel { position: fixed; inset: 0; z-index: 40; background: var(--bg); display: none; flex-direction: column; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 #panel.open { display: flex; }
 #panel .bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px; min-height: 56px; }
@@ -234,6 +257,7 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     <div id="chats"></div>
   </div>
   <div class="foot">
+    <button class="row-btn" onclick="closeDrawer(); showCodeProjects()"><svg class="i"><use href="#i-code"/></svg><span>Code</span></button>
     <button class="row-btn" onclick="closeDrawer(); showAgents()"><svg class="i"><use href="#i-people"/></svg><span>Agents</span></button>
     <button class="row-btn" onclick="closeDrawer(); showModels()"><svg class="i"><use href="#i-chip"/></svg><span>Models</span></button>
     <button class="row-btn" onclick="closeDrawer(); showSchedules()"><svg class="i"><use href="#i-clock"/></svg><span>Scheduled</span></button>
@@ -249,6 +273,11 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     <button class="icon-btn" id="menuBtn" onclick="openDrawer()" aria-label="Menu"><svg class="i"><use href="#i-menu"/></svg></button>
     <input id="title" value="New chat" onchange="renameChat(this.value)" aria-label="Chat title">
     <button class="icon-btn" onclick="newChat()" aria-label="New chat"><svg class="i"><use href="#i-compose"/></svg></button>
+  </div>
+  <div id="codebar" hidden>
+    <span id="codeName"></span>
+    <button class="tonal" onclick="openCode('files')">Files</button>
+    <button class="tonal" onclick="openCode('run')">Run</button>
   </div>
   <div id="status"></div>
   <div id="chat"></div>
@@ -266,6 +295,17 @@ details.step .detail.md { white-space: normal; font-size: 14px; color: var(--tex
     </div>
   </div>
 </main>
+
+<aside id="code">
+  <div class="bar">
+    <button class="icon-btn" onclick="closeCode()" aria-label="Back to the chat"><svg class="i"><use href="#i-close"/></svg></button>
+    <b id="codeTitle"></b>
+    <span class="seg"><button id="codeTabFiles" onclick="codeTab('files')">Files</button><button id="codeTabRun" onclick="codeTab('run')">Run</button></span>
+    <button class="icon-btn" onclick="exportZip()" aria-label="Download as zip"><svg class="i"><use href="#i-save"/></svg></button>
+  </div>
+  <div class="body" id="codeBody"></div>
+  <input type="file" id="codeImport" multiple hidden onchange="importCodeFiles(this.files)">
+</aside>
 
 <aside id="panel">
   <div class="bar">
@@ -578,6 +618,14 @@ const TOOL_GROUPS = {
     tool("press", "Press one of the phone's own buttons.", {button: {type: "string", enum: ["back", "home", "recents", "notifications"]}}, ["button"]),
     tool("list_apps", "List the names of the apps installed on the phone.", {}, []),
   ],
+  code: [
+    tool("list_files", "List the files in this code project.", {}, []),
+    tool("read_file", "Read a file from this code project.", {path: {type: "string"}}, ["path"]),
+    tool("write_file", "Create or replace a file in this code project. Always send the whole file. Folders are made as needed, for example css/style.css.", {path: {type: "string"}, content: {type: "string"}}, ["path", "content"]),
+    tool("edit_file", "Change part of a file: replace the exact text find (it must appear once) with replace. Use for small changes to big files.", {path: {type: "string"}, find: {type: "string"}, replace: {type: "string"}}, ["path", "find", "replace"]),
+    tool("delete_file", "Delete a file from this code project.", {path: {type: "string"}}, ["path"]),
+    tool("run_code", "Run a file and get its output and any errors: an .html page (with its CSS and JS) is shown to the user, .js runs in a sandbox, .py runs in Python. Other languages can't run on this device.", {path: {type: "string"}}, ["path"]),
+  ],
   info: [
     tool("get_weather", "Current weather and the next 3 days for a place.", {place: {type: "string", description: "Town or city, for example Enfield"}}, ["place"]),
     tool("wikipedia", "Look up a topic on Wikipedia and get the article's main text. Good for facts about people, places, history and science.", {topic: {type: "string"}}, ["topic"]),
@@ -607,6 +655,7 @@ const TOOL_GROUPS = {
   ],
 };
 const GROUP_PROMPTS = {
+  code: "You are working in the code project \"{project}\". Its files: {files}. Build things by writing files with write_file (the whole file) or edit_file, then run_code to check they work and fix any errors before you report back. A website or app starts at index.html. You can write any language, but only HTML, CSS, JavaScript and Python run on this device.",
   info: "For anything that changes (weather, news, prices, rates) or any fact you aren't sure of, look it up with your tools instead of answering from memory: get_weather, get_news, convert_currency, wikipedia. Use calculate for any sum. Say which source you used.",
   mydata: "You can read the user's own phone calendar (read_calendar) and contacts (find_contact) when they ask about their plans or a person.",
   media: "You can make pictures with create_image.",
@@ -664,11 +713,13 @@ Reply with only the new memory as short bullet points, under 300 words. If nothi
 let job = null;  // {chatId, controller}
 
 // Helper agents (allowDelegate false) can't ask the user anything: only the main chat can.
-function agentGroups(agent, allowDelegate) {
+function agentGroups(agent, allowDelegate, c = chat) {
+  // A code project's chat always has the file tools, whichever agent is chosen.
+  if (c && c.code) return ["code", ...agentGroups(agent, allowDelegate, null).filter(g => g !== "delegate" && g !== "mydata" && g !== "media")];
   return [...(agent.tools || []).filter(g => g !== "mydata" || window.Android), ...(allowDelegate ? ["remind"] : []), ...(allowDelegate && !B.isBackground() ? ["ask"] : []), ...(allowDelegate && mcpTools.length ? ["mcp"] : [])].filter(g => g !== "delegate" || allowDelegate);
 }
-function toolsFor(agent, allowDelegate = true) {
-  return agentGroups(agent, allowDelegate).flatMap(g => g === "mcp" ? mcpTools.map(t => t.def) : TOOL_GROUPS[g] || []);
+function toolsFor(agent, allowDelegate = true, c = chat) {
+  return agentGroups(agent, allowDelegate, c).flatMap(g => g === "mcp" ? mcpTools.map(t => t.def) : TOOL_GROUPS[g] || []);
 }
 // The date and time in the UK, GMT in winter and BST in summer, worked out fresh for every message.
 function ukNow() {
@@ -679,7 +730,9 @@ function ukNow() {
 }
 function systemPrompt(agentId, agent, c, {style = "normal", think = false, allowDelegate = true} = {}) {
   const others = Object.entries(allAgents()).filter(([k]) => k !== agentId).map(([k, a]) => `${k} (${a.name})`).join(", ");
-  const parts = agentGroups(agent, allowDelegate).filter(g => GROUP_PROMPTS[g]).map(g => GROUP_PROMPTS[g].replace("{agents}", others).replace("{connectors}", [...new Set(mcpTools.map(t => t.server.name))].join(", ")));
+  const cp = c && c.code ? codeProject(c.code) : null;
+  const parts = agentGroups(agent, allowDelegate, c).filter(g => GROUP_PROMPTS[g]).map(g => GROUP_PROMPTS[g].replace("{agents}", others).replace("{connectors}", [...new Set(mcpTools.map(t => t.server.name))].join(", "))
+    .replace("{project}", cp?.name || "").replace("{files}", cp ? Object.keys(cp.files).sort().join(", ") || "none yet" : ""));
   let p = BASE_PROMPT.replace("{agent_name}", agent.name).replace("{today}", ukNow())
     .replace("{instructions}", agent.instructions || "").replace("{tools}", parts.length ? parts.join("\n") + "\n" : "");
   if (STYLES[style]) p += "\n\nStyle: " + STYLES[style];
@@ -763,7 +816,7 @@ async function runJob(c, body) {
     await loadModel(m);
     await mcpLoad(c);
     const system = systemPrompt(agentId, agent, c, {style: body.style, think: body.think});
-    await agentLoop(c, c.messages, system, toolsFor(agent), null);
+    await agentLoop(c, c.messages, system, toolsFor(agent, true, c), null);
   } catch (e) {
     if (!(job && job.controller.signal.aborted)) emit({type: "error", chat: c.id, text: e.message || String(e)});
   } finally {
@@ -833,6 +886,7 @@ async function runTool(c, call, sub) {
     else if (name === "create_image") [result, extra] = await makeImage(c, args);
     else if (name === "set_reminder") result = setReminder(args);
     else if (INFO_TOOLS[name]) result = await INFO_TOOLS[name](args);
+    else if (CODE_TOOLS[name]) result = await CODE_TOOLS[name](c, args);
     else if (PHONE_TOOLS[name]) result = await phoneTool(c, name, args);
   } catch (e) { result = `ERROR: ${e.message || e}`; }
   if (result.length > 6000) result = result.slice(0, 4000) + "\n...(cut)...\n" + result.slice(-1500);
@@ -888,6 +942,7 @@ function closeDrawer() { document.body.classList.remove("drawer"); }
 window.onBack = () => {
   if (document.querySelector(".sheet-bg")) { closeSheet(); return true; }
   if ($("panel").classList.contains("open")) { closePanel(); return true; }
+  if ($("code").classList.contains("open")) { if (codeView.path !== null) { codeView.path = null; codeTab("files"); } else closeCode(); return true; }
   if (document.body.classList.contains("drawer")) { closeDrawer(); return true; }
   return false;
 };
@@ -963,7 +1018,7 @@ function renderMode() {
   $("mode").textContent = parts.join(" · ");
 }
 function renderOpts() {
-  renderMode();
+  renderMode(); renderCodebar();
   $("title").value = chat?.title || "New chat";
   $("sendBtn").hidden = false; $("stopBtn").hidden = !job;  // send stays: messages queue while it's busy
 }
@@ -1041,6 +1096,249 @@ function toolHtml(call, result) {
   }
   return step(toolIcon(name), toolLabel(name, a), esc(result ? result.content : "Working..."));
 }
+// ------------------------------------------------ Desk Agent Code
+// A code project is one saved file, code/ID.json: {id, name, files: {path: text}, chat}.
+// Its chat is a normal chat marked with code: ID, so it gets the file tools.
+
+const codeProjects = () => (JSON.parse(B.list("code") || "[]")).filter(n => n.endsWith(".json")).map(n => readJSON("code/" + n, null)).filter(Boolean)
+  .sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
+const codeProject = id => readJSON(`code/${id}.json`, null);
+function saveCodeProject(p) { p.updated = now(); writeJSON(`code/${p.id}.json`, p); }
+const cleanPath = p => String(p || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").replace(/\/{2,}/g, "/").split("/").filter(x => x && x !== "." && x !== "..").join("/");
+
+const STARTERS = {
+  web: {"index.html": "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>My app</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <h1>Hello</h1>\n  <script src=\"app.js\"><\/script>\n</body>\n</html>\n",
+        "style.css": "body {\n  font-family: system-ui, sans-serif;\n  margin: 2rem;\n}\n", "app.js": "console.log(\"Ready\");\n"},
+  python: {"main.py": "print(\"Hello from Python\")\n"},
+  empty: {},
+};
+function showCodeProjects() {
+  const list = codeProjects();
+  sheet(`<h2>Code</h2><p class="sub">Projects the AI builds with you: websites, apps and scripts in any language. Websites, JavaScript and Python run right here.</p>
+    <div class="list">${list.map(pr => `<button class="item" onclick="openCodeProject('${pr.id}')"><span class="grow">${esc(pr.name)}<small>${Object.keys(pr.files).length} files</small></span></button>`).join("")
+      || `<div class="item"><span class="grow">No projects yet</span></div>`}</div>
+    <div class="buttons"><button class="tonal left" onclick="newCodeProject()">New project</button><button class="text" onclick="closeSheet()">Done</button></div>`);
+}
+function newCodeProject() {
+  sheet(`<h2>New project</h2>
+    <div class="field"><label>Name</label><input type="text" id="cpName" placeholder="For example: Pocket money tracker"></div>
+    <div class="field"><label>Start with</label><select id="cpKind"><option value="web">A website or app (HTML, CSS, JavaScript)</option><option value="python">A Python script</option><option value="empty">Nothing (any language)</option></select></div>
+    <div class="buttons"><button class="text" onclick="showCodeProjects()">Cancel</button><button class="filled" id="cpMake">Make</button></div>`, bg => {
+    bg.querySelector("#cpMake").onclick = () => {
+      const name = $("cpName").value.trim() || "My project", c = Store.newChat(null, "coder");
+      const pr = {id: uid(), name, files: {...STARTERS[$("cpKind").value]}, chat: c.id, created: now()};
+      c.code = pr.id; c.title = name; Store.saveChat(c); saveCodeProject(pr);
+      closeSheet(); openChat(c.id); toast("Tell the AI what to build.");
+    };
+  });
+}
+function openCodeProject(id) {
+  const pr = codeProject(id); if (!pr) return;
+  let c = Store.getChat(pr.chat);
+  if (!c) { c = Store.newChat(null, "coder"); c.code = pr.id; c.title = pr.name; Store.saveChat(c); pr.chat = c.id; saveCodeProject(pr); }
+  closeSheet(); openChat(c.id);
+}
+function renderCodebar() {
+  const pr = chat && chat.code ? codeProject(chat.code) : null;
+  $("codebar").hidden = !pr;
+  if (pr) $("codeName").textContent = `${pr.name} · ${Object.keys(pr.files).length} files`;
+}
+
+// The workspace: files (list, editor, add) and run.
+let codeView = {tab: "files", path: null, runPath: null};
+function openCode(tab) { codeView.tab = tab; $("code").classList.add("open"); codeTab(tab); }
+function closeCode() { $("code").classList.remove("open"); renderCodebar(); }
+function codeTab(tab) {
+  const pr = chat && chat.code ? codeProject(chat.code) : null;
+  if (!pr) return closeCode();
+  codeView.tab = tab;
+  $("codeTitle").textContent = pr.name;
+  $("codeTabFiles").classList.toggle("on", tab === "files"); $("codeTabRun").classList.toggle("on", tab === "run");
+  const body = $("codeBody"), paths = Object.keys(pr.files).sort();
+  if (tab === "files" && codeView.path !== null) {
+    const isNew = !(codeView.path in pr.files);
+    body.innerHTML = `<div class="editor"><div class="ebar"><input id="edPath" value="${esc(codeView.path)}" placeholder="file name, for example notes.md" aria-label="File name">
+      ${isNew ? "" : `<button class="icon-btn" onclick="deleteCodeFile()" aria-label="Delete file">${icon("trash")}</button>`}
+      <button class="text" onclick="codeView.path = null; codeTab('files')">Cancel</button><button class="filled" onclick="saveCodeFile()">Save</button></div>
+      <textarea id="edText" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Type or paste code here">${esc(pr.files[codeView.path] || "")}</textarea></div>`;
+    return;
+  }
+  if (tab === "files") {
+    body.innerHTML = `<div class="files"><div class="actions-row"><button class="tonal" onclick="codeView.path = ''; codeTab('files')">New file</button>
+      <button class="tonal" onclick="$('codeImport').click()">Add files</button></div>
+      <div class="list">${paths.map(f => `<div class="file-row" onclick="codeView.path = ${esc(JSON.stringify(f))}; codeTab('files')"><span class="grow">${esc(f)}</span><small>${(pr.files[f].length / 1024).toFixed(1)} KB</small></div>`).join("")
+        || `<div class="item"><span class="grow">No files yet. Ask the AI to build something, or add your own.</span></div>`}</div></div>`;
+    return;
+  }
+  const runnable = paths.filter(f => /\.(html?|js|py)$/i.test(f));
+  const pick = runnable.includes(codeView.runPath) ? codeView.runPath : runnable.find(f => /(^|\/)index\.html?$/i.test(f)) || runnable[0];
+  body.innerHTML = `<div class="runout"><div class="rbar"><select id="runPick" aria-label="File to run">${runnable.map(f => `<option ${f === pick ? "selected" : ""}>${esc(f)}</option>`).join("")}</select>
+    <button class="filled" onclick="codeView.runPath = $('runPick').value; runInWorkspace()">Run</button></div><div id="runArea" style="display:flex;flex:1;flex-direction:column"></div></div>`;
+  if (!runnable.length) $("runArea").innerHTML = `<pre>Nothing to run yet. Websites (index.html), JavaScript and Python files run here; other languages can be written but not run on this device.</pre>`;
+  else { codeView.runPath = pick; runInWorkspace(); }
+}
+function saveCodeFile() {
+  const pr = codeProject(chat.code), path = cleanPath($("edPath").value);
+  if (!path) return toast("Give the file a name.");
+  if (codeView.path && codeView.path !== path) delete pr.files[codeView.path];
+  pr.files[path] = $("edText").value; saveCodeProject(pr);
+  codeView.path = null; toast("Saved"); codeTab("files"); renderCodebar();
+}
+function deleteCodeFile() {
+  const pr = codeProject(chat.code); delete pr.files[codeView.path]; saveCodeProject(pr);
+  codeView.path = null; codeTab("files"); renderCodebar();
+}
+async function importCodeFiles(list) {
+  const pr = codeProject(chat.code);
+  for (const f of list) {
+    const text = await f.text();
+    if (text.slice(0, 2000).includes("\u0000")) { toast(`${f.name} isn't a text file, so it was left out.`); continue; }
+    pr.files[cleanPath(f.webkitRelativePath || f.name)] = text;
+  }
+  saveCodeProject(pr); $("codeImport").value = ""; codeTab("files"); renderCodebar();
+}
+async function runInWorkspace() {
+  const pr = codeProject(chat.code), area = $("runArea");
+  const res = await runCodeFile(pr, codeView.runPath, area);
+  if (res && !/\.html?$/i.test(codeView.runPath)) area.innerHTML = `<pre>${esc(res)}</pre>`;
+}
+
+// Running code. Everything runs in a sandboxed frame that can't reach the app.
+// A web page has its project CSS and JS files put inline, since the frame can't load them.
+function inlinePage(pr, path) {
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+  const resolve = href => cleanPath(dir + href.split(/[?#]/)[0]);
+  let html = pr.files[path];
+  html = html.replace(/<link\b[^>]*href=["']([^"']+\.css)["'][^>]*>/gi, (m, href) => pr.files[resolve(href)] != null ? `<style>${pr.files[resolve(href)]}</style>` : m);
+  html = html.replace(/<script\b([^>]*)src=["']([^"']+\.m?js)["']([^>]*)>\s*<\/script>/gi, (m, a, src, b) => pr.files[resolve(src)] != null
+    ? `<script${(a + b).replace(/\s+(defer|async)\b/gi, "")}>${pr.files[resolve(src)].replace(/<\/script/gi, "<\\/script")}<\/script>` : m);
+  return html;
+}
+// Sends console output and errors from inside the frame back to the app.
+const CONSOLE_HOOK = `<script>(() => { const send = (kind, args) => parent.postMessage({deskRun: 1, kind, text: args.map(a => { try { return typeof a === "string" ? a : JSON.stringify(a); } catch (e) { return String(a); } }).join(" ")}, "*");
+  ["log", "info", "warn", "error"].forEach(k => { const o = console[k]; console[k] = (...a) => { send(k, a); o.apply(console, a); }; });
+  addEventListener("error", e => send("error", [e.message + (e.lineno ? " (line " + e.lineno + ")" : "")]));
+  addEventListener("unhandledrejection", e => send("error", [String(e.reason)])); })();<\/script>`;
+function runCodeFile(pr, path, area) {
+  const code = pr.files[path];
+  if (code == null) return Promise.resolve(`ERROR: there's no file called ${path}.`);
+  if (/\.py$/i.test(path)) return runPython(pr, path);
+  if (!/\.(html?|js)$/i.test(path)) return Promise.resolve(`${path} can't run on this device (only HTML, JavaScript and Python can). The code is saved in the project.`);
+  return new Promise(done => {
+    const out = [], frame = document.createElement("iframe");
+    frame.setAttribute("sandbox", "allow-scripts allow-forms allow-modals");
+    const page = /\.html?$/i.test(path) ? inlinePage(pr, path) : `<body><script>${code.replace(/<\/script/gi, "<\\/script")}<\/script></body>`;
+    frame.srcdoc = page.replace(/<head[^>]*>/i, m => m + CONSOLE_HOOK).replace(/^(?![\s\S]*<head)/, CONSOLE_HOOK);
+    const listen = e => { if (e.source === frame.contentWindow && e.data?.deskRun) out.push(`${e.data.kind === "log" || e.data.kind === "info" ? "" : e.data.kind.toUpperCase() + ": "}${e.data.text}`); };
+    addEventListener("message", listen);
+    if (area) { area.innerHTML = ""; area.appendChild(frame); }
+    else { frame.style.display = "none"; document.body.appendChild(frame); }
+    setTimeout(() => {
+      removeEventListener("message", listen);
+      if (!area) frame.remove();
+      const errors = out.filter(l => l.startsWith("ERROR")).length;
+      done(`${path} ran${/\.html?$/i.test(path) ? " (the page is on screen for the user)" : ""}. ${errors ? errors + " error(s)." : "No errors."}\n${out.join("\n").slice(0, 4000) || "(no console output)"}`);
+    }, 2500);
+  });
+}
+// Python runs with Pyodide (Python for the web), downloaded the first time (about 30 MB).
+const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
+let pyFrame = null, pyReady = null, pyJobs = {};
+function pythonFrame() {
+  if (pyReady) return pyReady;
+  pyFrame = document.createElement("iframe");
+  pyFrame.setAttribute("sandbox", "allow-scripts"); pyFrame.style.display = "none";
+  pyFrame.srcdoc = `<script src="${PYODIDE}pyodide.js"><\/script><script>
+    const ready = (window.loadPyodide ? loadPyodide({indexURL: "${PYODIDE}"}) : Promise.reject(new Error("couldn't download it. It needs the internet the first time"))).then(py => { parent.postMessage({py: "ready"}, "*"); return py; }, e => { parent.postMessage({py: "failed", text: String(e.message || e)}, "*"); });
+    addEventListener("message", async e => {
+      if (!e.data || !e.data.pyRun) return;
+      const py = await ready, out = [];
+      py.setStdout({batched: t => out.push(t)}); py.setStderr({batched: t => out.push("ERROR: " + t)});
+      try {
+        for (const [name, text] of Object.entries(e.data.files)) { const parts = name.split("/"); for (let i = 1; i < parts.length; i++) { try { py.FS.mkdir(parts.slice(0, i).join("/")); } catch (x) {} } py.FS.writeFile(name, text); }
+        await py.loadPackagesFromImports(e.data.code).catch(() => {});
+        const r = await py.runPythonAsync(e.data.code);
+        if (r !== undefined && r !== null) out.push(String(r));
+      } catch (err) { out.push("ERROR: " + String(err.message || err).split("\\n").slice(-6).join("\\n")); }
+      parent.postMessage({pyDone: e.data.pyRun, text: out.join("\\n")}, "*");
+    });<\/script>`;
+  document.body.appendChild(pyFrame);
+  pyReady = new Promise((ok, fail) => {
+    const t = setTimeout(() => { pyReady = null; fail(new Error("Python didn't start. It needs the internet the first time.")); }, 180000);
+    addEventListener("message", function once(e) {
+      if (e.source !== pyFrame.contentWindow || !e.data?.py) return;
+      removeEventListener("message", once); clearTimeout(t);
+      e.data.py === "ready" ? ok() : (pyReady = null, fail(new Error("Python didn't start: " + e.data.text)));
+    });
+  });
+  addEventListener("message", e => { if (e.data?.pyDone && pyJobs[e.data.pyDone]) { pyJobs[e.data.pyDone](e.data.text); delete pyJobs[e.data.pyDone]; } });
+  return pyReady;
+}
+async function runPython(pr, path) {
+  setStatus("Starting Python (the first time downloads about 30 MB)...");
+  try { await pythonFrame(); } catch (e) { setStatus(""); return "ERROR: " + e.message; }
+  setStatus("Running " + path + "...");
+  const id = uid();
+  const text = await new Promise(done => { pyJobs[id] = done; pyFrame.contentWindow.postMessage({pyRun: id, code: pr.files[path], files: pr.files}, "*"); setTimeout(() => pyJobs[id] && (delete pyJobs[id], done("ERROR: stopped after 60 seconds.")), 60000); });
+  setStatus("");
+  return `${path} ran.\n${text.slice(0, 4000) || "(no output)"}`;
+}
+const CODE_TOOLS = {
+  list_files(c) { const pr = codeProject(c.code); return Object.entries(pr.files).map(([f, t]) => `${f} (${t.length} characters)`).join("\n") || "No files yet."; },
+  read_file(c, a) { const t = codeProject(c.code).files[cleanPath(a.path)]; return t == null ? `ERROR: there's no file called ${a.path}.` : t; },
+  write_file(c, a) {
+    const pr = codeProject(c.code), path = cleanPath(a.path);
+    if (!path) return "ERROR: give the file a name.";
+    pr.files[path] = String(a.content); saveCodeProject(pr); renderCodebar();
+    return `Saved ${path} (${String(a.content).split("\n").length} lines).`;
+  },
+  edit_file(c, a) {
+    const pr = codeProject(c.code), path = cleanPath(a.path), t = pr.files[path];
+    if (t == null) return `ERROR: there's no file called ${a.path}.`;
+    const n = t.split(a.find).length - 1;
+    if (n !== 1) return `ERROR: the text to replace appears ${n} times in ${path}; it must appear exactly once. Read the file and try again.`;
+    pr.files[path] = t.replace(a.find, () => a.replace); saveCodeProject(pr);
+    return `Changed ${path}.`;
+  },
+  delete_file(c, a) { const pr = codeProject(c.code), path = cleanPath(a.path); if (!(path in pr.files)) return `ERROR: there's no file called ${a.path}.`; delete pr.files[path]; saveCodeProject(pr); renderCodebar(); return `Deleted ${path}.`; },
+  async run_code(c, a) {
+    const pr = codeProject(c.code), path = cleanPath(a.path);
+    const showing = /\.html?$/i.test(path) && !B.isBackground() && chat && chat.id === c.id;
+    if (showing) { codeView.runPath = path; openCode("run"); return runCodeFile(pr, path, $("runArea")); }
+    return runCodeFile(pr, path, null);
+  },
+};
+
+// The whole project as a .zip (no compression), saved to Downloads.
+function crc32(bytes) {
+  let c, crc = -1;
+  for (let i = 0; i < bytes.length; i++) { c = (crc ^ bytes[i]) & 255; for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xEDB88320 : c >>> 1; crc = (crc >>> 8) ^ c; }
+  return (crc ^ -1) >>> 0;
+}
+function makeZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(files)) {
+    const n = enc.encode(name), data = enc.encode(text), crc = crc32(data);
+    const head = new DataView(new ArrayBuffer(30));
+    [[0, 0x04034b50, 4], [4, 20, 2], [6, 0x0800, 2], [14, crc, 4], [18, data.length, 4], [22, data.length, 4], [26, n.length, 2]].forEach(([o, v, s]) => s === 4 ? head.setUint32(o, v, true) : head.setUint16(o, v, true));
+    const dir = new DataView(new ArrayBuffer(46));
+    [[0, 0x02014b50, 4], [4, 20, 2], [6, 20, 2], [8, 0x0800, 2], [16, crc, 4], [20, data.length, 4], [24, data.length, 4], [28, n.length, 2], [42, offset, 4]].forEach(([o, v, s]) => s === 4 ? dir.setUint32(o, v, true) : dir.setUint16(o, v, true));
+    parts.push(new Uint8Array(head.buffer), n, data); central.push(new Uint8Array(dir.buffer), n);
+    offset += 30 + n.length + data.length;
+  }
+  const size = central.reduce((s, p) => s + p.length, 0), end = new DataView(new ArrayBuffer(22));
+  [[0, 0x06054b50, 4], [8, Object.keys(files).length, 2], [10, Object.keys(files).length, 2], [12, size, 4], [16, offset, 4]].forEach(([o, v, s]) => s === 4 ? end.setUint32(o, v, true) : end.setUint16(o, v, true));
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], {type: "application/zip"});
+}
+async function exportZip() {
+  const pr = codeProject(chat.code);
+  if (!Object.keys(pr.files).length) return toast("There are no files to save yet.");
+  const b64 = await new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result.split(",")[1]); r.readAsDataURL(makeZip(pr.files)); });
+  try { toast("Saved to " + await bridge("saveDownload", {name: pr.name.replace(/[^\w -]/g, "").trim() + ".zip", content: b64, mime: "application/zip", base64: true})); }
+  catch (e) { toast("Couldn't save: " + e.message); }
+}
+
 // ------------------------------------------------ looking things up (free sources, no keys)
 
 const getJSON = async url => JSON.parse(await bridge("httpGet", {url}));
@@ -1160,11 +1458,14 @@ function pollSend(id) {
   $("input").value = [...p.picked].sort().map(i => p.options[i]).join(", ");
   send();
 }
-function toolIcon(name) { return name === "create_image" ? "image" : name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : name === "set_reminder" ? "clock" : "globe"; }
+function toolIcon(name) { if (CODE_TOOLS[name]) return "code"; return name === "create_image" ? "image" : name === "web_search" ? "search" : PHONE_TOOLS[name] ? "phone" : name === "set_reminder" ? "clock" : "globe"; }
 function toolLabel(name, a) {
   if (PHONE_TOOLS[name]) return PHONE_TOOLS[name](a);
   if (name === "web_search") return `Searched for “${a.query}”`;
   if (name === "set_reminder") return `Reminder set: ${a.text} (${a.date} ${a.time})`;
+  const codeLabel = {list_files: () => "Looked at the files", read_file: () => `Read ${a.path}`, write_file: () => `Wrote ${a.path}`,
+    edit_file: () => `Changed ${a.path}`, delete_file: () => `Deleted ${a.path}`, run_code: () => `Ran ${a.path}`}[name];
+  if (codeLabel) return codeLabel();
   const infoLabel = {get_weather: () => `Checked the weather for ${a.place}`, wikipedia: () => `Looked up ${a.topic} on Wikipedia`,
     get_news: () => a.topic ? `Checked the news on ${a.topic}` : "Checked the news", convert_currency: () => `Converted ${a.amount} ${a.from} to ${a.to}`,
     calculate: () => `Worked out ${a.expression}`, read_calendar: () => "Read your calendar", find_contact: () => `Looked up ${a.name} in your contacts`}[name];
