@@ -123,7 +123,11 @@ final class Car {
                 .addAction(reply)
                 .addAction(read)
                 .setOnlyAlertOnce(silent)
-                .setSilent(silent)
+                // A quiet update (what was heard, marked as read, back after a restart): no sound or buzz.
+                // Android has no plain "silent" switch; a grouped notification that only lets the
+                // group summary alert is how AndroidX does it.
+                .setGroup(silent ? "car-quiet" : null)
+                .setGroupAlertBehavior(silent ? Notification.GROUP_ALERT_SUMMARY : Notification.GROUP_ALERT_ALL)
                 .build();
         c.getSystemService(NotificationManager.class).notify(NOTE_ID, n);
     }
