@@ -21,3 +21,8 @@ os/DeskOS.bin
 os/DeskOS.zip
 ipad/site/
 android/dashboard/src/main/assets/remote.html
+bootdev/rsrc_windows_amd64.syso
+bootdev/android/.gradle/
+bootdev/android/app/build/
+bootdev/android/build/
+bootdev/android/app/src/main/res/mipmap-*/

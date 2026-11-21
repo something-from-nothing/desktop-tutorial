@@ -1,0 +1,112 @@
+name: Build Boot.dev Dashboard
+
+# Boot.dev Dashboard: Windows EXE (Go, no installer) and Android APK, from bootdev/.
+on:
+  push:
+    branches: [main]
+    paths: ["bootdev/**", ".github/workflows/build-bootdev.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-bootdev
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Draw the icons
+        run: |
+          pip install --quiet pillow
+          python3 bootdev/tools/make_icon.py build/icon bootdev/android/app/src/main/res
+          python3 bootdev/tools/make_syso.py build/icon/app.ico bootdev/rsrc_windows_amd64.syso
+
+      - name: Test and build the Windows EXE
+        working-directory: bootdev
+        run: |
+          go vet ./...
+          GOOS=windows GOARCH=amd64 go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o ../BootDevDashboard.exe .
+          ls -la ../BootDevDashboard.exe
+
+      # Every APK must be signed with the same key, or Android won't install an update over
+      # the old one. The key lives in GitHub's build cache (never in the code). Saving it as the
+      # repo secrets BOOTDASH_KEYSTORE_BASE64 and BOOTDASH_KEY_PASSWORD makes it permanent.
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.bootdash-signing
+          key: bootdash-signing-key-v1
+
+      - name: Set up the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.BOOTDASH_KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.BOOTDASH_KEY_PASSWORD }}
+        run: |
+          dir="$HOME/.bootdash-signing"
+          mkdir -p "$dir"
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$dir/secret.keystore"
+            store="$dir/secret.keystore"; pass="$KEY_PASSWORD"
+          else
+            store="$dir/bootdash.keystore"
+            if [ ! -s "$store" ] || [ ! -s "$dir/password" ]; then
+              echo "::warning::Making a new signing key. Phones with an older build must uninstall it once."
+              openssl rand -base64 24 > "$dir/password"
+              keytool -genkeypair -storetype PKCS12 -keystore "$store" -alias bootdash -keyalg RSA -keysize 3072 \
+                -validity 10950 -storepass "$(cat "$dir/password")" -keypass "$(cat "$dir/password")" -dname "CN=Boot.dev Dashboard, C=GB"
+            fi
+            pass=$(cat "$dir/password")
+          fi
+          echo "::add-mask::$pass"
+          echo "SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
+          echo "SIGNING_PASSWORD=$pass" >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        run: |
+          gradle -p bootdev/android :app:assembleRelease --no-daemon
+          apk=bootdev/android/app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify --print-certs "$apk"
+          unzip -l "$apk" | grep -E "assets/(dashboard.html|reader.js)"
+          cp "$apk" BootDevDashboard.apk
+          ls -la BootDevDashboard.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BootDevDashboard
+          path: |
+            BootDevDashboard.exe
+            BootDevDashboard.apk
+
+      - name: Put both on the download page
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bootdev-dashboard
+          name: Boot.dev Dashboard
+          make_latest: false
+          overwrite_files: true
+          body: |
+            **BootDevDashboard.exe** for Windows: double click it. boot.dev opens on the left, the dashboard on the right.
+            **BootDevDashboard.apk** for Android: install it, then use the Boot.dev and Dashboard tabs at the bottom.
+            Built from ${{ github.sha }}.
+          files: |
+            BootDevDashboard.exe
+            BootDevDashboard.apk
