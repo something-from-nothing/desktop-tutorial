@@ -147,7 +147,8 @@
     if (lm) { o.lessonId = lm[1]; o.code = editorCode(); }
     var c = chapters();
     if (c) o.chapters = c;
-    o.login = !!document.querySelector('input[type=password]') || /\/(login|signin|sign-in)/.test(location.pathname);
+    o.login = !!document.querySelector('input[type=password]') || /\/(login|signin|sign-in)/.test(location.pathname)
+      || (o.level == null && !!loginLink());
     return o;
   }
 
@@ -173,6 +174,16 @@
   setInterval(tick, 1500);
   tick();
 
+  // A "Log in" link or button, shown when signed out.
+  function loginLink() {
+    var els = document.querySelectorAll('a, button');
+    for (var i = 0; i < els.length; i++) {
+      var t = (els[i].innerText || '').trim();
+      if (/^(log\s*in|sign\s*in|login)$/i.test(t)) return els[i];
+    }
+    return null;
+  }
+
   // Called by the app to sign in with the saved account. Works for one step or two step forms.
   function setValue(el, v) {
     if (!el) return;
@@ -189,7 +200,11 @@
       var ins = document.querySelectorAll('input[type=text], input:not([type])');
       if (ins.length) em = ins[0];
     }
-    if (!pw && !em) return 'nothing';
+    if (!pw && !em) {
+      var link = loginLink();
+      if (link) { link.click(); return 'opened login'; }
+      return 'nothing';
+    }
     if (em && !em.value) setValue(em, email);
     if (pw) setValue(pw, pass);
     var scope = (pw && pw.form) || (em && em.form) || document;

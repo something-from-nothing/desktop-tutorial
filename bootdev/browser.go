@@ -29,12 +29,13 @@ func findBrowser() string {
 		}
 		return ""
 	}
+	// Chrome first: a fresh Edge profile pops up sync and sign in prompts.
 	var cands []string
-	for _, env := range []string{"ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"} {
-		if base := os.Getenv(env); base != "" {
-			cands = append(cands,
-				filepath.Join(base, `Microsoft\Edge\Application\msedge.exe`),
-				filepath.Join(base, `Google\Chrome\Application\chrome.exe`))
+	for _, name := range []string{`Google\Chrome\Application\chrome.exe`, `Microsoft\Edge\Application\msedge.exe`} {
+		for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"} {
+			if base := os.Getenv(env); base != "" {
+				cands = append(cands, filepath.Join(base, name))
+			}
 		}
 	}
 	for _, c := range cands {
@@ -110,6 +111,7 @@ func startBootDevWindow(url string) {
 		"--remote-debugging-port=0",
 		"--remote-allow-origins=http://127.0.0.1",
 		"--no-first-run", "--no-default-browser-check",
+		"--disable-sync", "--disable-features=msImplicitSignin,msEdgeSyncConsent,EdgeSigninPrompts",
 		"--window-position=" + itoa(bx) + ",0",
 		"--window-size=" + itoa(bw) + "," + itoa(h),
 	}
@@ -171,7 +173,8 @@ func openDashboard(u string) {
 	_, _, dx, dw, h := layout()
 	cmd := exec.Command(exe, "--app="+u, "--user-data-dir="+filepath.Join(appDir(), "dashboard-window"),
 		"--window-position="+itoa(dx)+",0", "--window-size="+itoa(dw)+","+itoa(h),
-		"--no-first-run", "--no-default-browser-check")
+		"--no-first-run", "--no-default-browser-check",
+		"--disable-sync", "--disable-features=msImplicitSignin,msEdgeSyncConsent,EdgeSigninPrompts")
 	if cmd.Start() != nil {
 		openDefault(u)
 		return
