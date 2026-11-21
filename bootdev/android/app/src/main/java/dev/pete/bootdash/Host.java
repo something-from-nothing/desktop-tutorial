@@ -140,6 +140,12 @@ final class Host {
                     if (in.has(k)) ed.putString(k, in.optString(k));
                 }
                 if (!in.optString("password").isEmpty()) ed.putString("passwordEnc", Secrets.seal(act, in.optString("password")));
+                String bk = in.optString("bridgeKey").trim();
+                if (bk.startsWith("sk-ant-")) {
+                    // A Claude API key pasted into the link box: keep it encrypted as the Claude key.
+                    ed.putString("bridgeKey", "");
+                    if (in.optString("claudeKey").isEmpty()) in.put("claudeKey", bk);
+                }
                 if (!in.optString("claudeKey").isEmpty()) ed.putString("claudeEnc", Secrets.seal(act, in.optString("claudeKey")));
                 ed.apply();
                 return "{\"ok\":true}";

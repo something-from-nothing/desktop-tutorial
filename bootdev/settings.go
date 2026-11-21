@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -34,7 +35,12 @@ func loadSettings() {
 	}
 	setMu.Lock()
 	_ = json.Unmarshal(b, &cur)
+	bk := strings.TrimSpace(cur.BridgeKey)
 	setMu.Unlock()
+	if strings.HasPrefix(bk, "sk-ant-") {
+		// A Claude API key pasted into the LLM Chat link box: store it encrypted as the Claude key.
+		_ = saveSettings(map[string]string{"bridgeKey": bk})
+	}
 }
 
 func seal(plain string) (string, error) {
@@ -71,7 +77,14 @@ func saveSettings(in map[string]string) error {
 		next.Email = v
 	}
 	if v, ok := in["bridgeKey"]; ok {
-		next.BridgeKey = v
+		next.BridgeKey = strings.TrimSpace(v)
+	}
+	if strings.HasPrefix(next.BridgeKey, "sk-ant-") {
+		// That's a Claude API key, not an LLM Chat link key: keep it encrypted as the Claude key.
+		if in["claudeKey"] == "" {
+			in["claudeKey"] = next.BridgeKey
+		}
+		next.BridgeKey = ""
 	}
 	if v := in["model"]; v != "" {
 		next.Model = v
