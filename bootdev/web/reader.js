@@ -14,6 +14,7 @@
       var s = JSON.stringify(o);
       if (window.BootHost && window.BootHost.push) window.BootHost.push(s);
       else if (typeof window.__bdHost === 'function') window.__bdHost(s);
+      else window.postMessage({ __bdDash: 1, s: s }, location.origin); // Chrome extension relay
     } catch (e) {}
   }
 
@@ -99,7 +100,7 @@
     for (var i = 0; i < els.length && list.length < 60; i++) {
       var e = els[i];
       if (e.childElementCount > 8) continue;
-      var t = (e.innerText || '').trim();
+      var t = (e.innerText || '').replace(/Reset (Chapter|Course) Progress/g, '').trim();
       if (t.length > 90) continue;
       var m = t.match(/^(\d+)\.\s*([^\n]+?)\s*(?:\n\s*)*(\d+)\s*\/\s*(\d+)\s*$/);
       if (!m || out[m[1]]) continue;
@@ -112,7 +113,7 @@
     // The course name is the nearest heading above the word "Chapters".
     for (var el = ch, k = 0; el && k < 5 && !course; k++, el = el.parentElement) {
       for (var sib = el.previousElementSibling; sib && !course; sib = sib.previousElementSibling) {
-        var first = (sib.innerText || '').trim().split('\n')[0].trim();
+        var first = (sib.innerText || '').replace(/Reset (Chapter|Course) Progress/g, '').trim().split('\n')[0].trim();
         if (first && first !== 'Chapters' && first.length < 80) course = first;
       }
     }
@@ -130,7 +131,7 @@
   }
 
   function snapshot() {
-    var o = { type: 'page', url: location.href, path: location.pathname, title: document.title };
+    var o = { type: 'page', url: location.href, path: location.pathname, title: document.title, visible: document.visibilityState !== 'hidden' };
     var lv = leafMatching(/^Level \d+$/);
     if (lv) o.level = +lv.textContent.replace(/\D+/g, '');
     var bar = document.querySelector('header [style*="width"], nav [style*="width"]');
@@ -144,7 +145,11 @@
       if (sm) o.streak = +sm[1];
     }
     var lm = location.pathname.match(/^\/lessons\/([0-9a-f-]{36})/);
-    if (lm) { o.lessonId = lm[1]; o.code = editorCode(); }
+    if (lm) {
+      o.lessonId = lm[1]; o.code = editorCode();
+      var out = document.querySelector('.lesson-code-output');
+      if (out) o.output = (out.innerText || '').slice(0, 4000);
+    }
     var c = chapters();
     if (c) o.chapters = c;
     o.login = !!document.querySelector('input[type=password]') || /\/(login|signin|sign-in)/.test(location.pathname)
@@ -172,6 +177,8 @@
     } catch (e) {}
   }
   setInterval(tick, 1500);
+  document.addEventListener('visibilitychange', tick);
+  window.addEventListener('focus', tick);
   tick();
 
   // A "Log in" link or button, shown when signed out.

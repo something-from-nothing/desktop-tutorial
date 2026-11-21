@@ -13,3 +13,6 @@ func unprotect(b []byte) ([]byte, error) { return append([]byte(nil), b...), nil
 func screenSize() (int, int)             { return 1536, 864 }
 func ensureShortcut()                    {}
 func fatal(msg string)                   { fmt.Fprintln(os.Stderr, msg); os.Exit(1) }
+
+func killOldCopies(dir string) {}
+func showFolder(dir string)    { fmt.Println("folder:", dir) }

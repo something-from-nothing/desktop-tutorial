@@ -198,3 +198,42 @@ func openDefaultApp(u string) {
 	}
 	_ = exec.Command(exe, "--app="+u, "--user-data-dir="+filepath.Join(appDir(), "dashboard-window")).Start()
 }
+
+// chromeExe finds Google Chrome only (the extension is for Chrome).
+func chromeExe() string {
+	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"} {
+		if base := os.Getenv(env); base != "" {
+			c := filepath.Join(base, `Google\Chrome\Application\chrome.exe`)
+			if _, err := os.Stat(c); err == nil {
+				return c
+			}
+		}
+	}
+	return ""
+}
+
+func openChromePage(u string) {
+	if exe := chromeExe(); exe != "" {
+		_ = exec.Command(exe, u).Start()
+	}
+}
+
+// closeOldCopies closes an older version of this app and the windows it opened.
+func closeOldCopies() {
+	profile := filepath.Join(appDir(), "bootdev-profile")
+	if p := readDevPort(profile); p != 0 {
+		if ts, err := listTargets(p); err == nil {
+			for _, t := range ts {
+				if t.Type == "page" && t.WSURL != "" {
+					if ws, err := wsDial(t.WSURL, 3*time.Second); err == nil {
+						_ = ws.WriteJSON(map[string]any{"id": 1, "method": "Browser.close", "params": map[string]any{}})
+						time.Sleep(300 * time.Millisecond)
+						ws.Close()
+					}
+					break
+				}
+			}
+		}
+	}
+	killOldCopies(appDir())
+}

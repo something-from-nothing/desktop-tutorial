@@ -88,14 +88,23 @@ var (
 	fills      int
 )
 
-func pushEvent(raw []byte) {
+func pushEvent(raw []byte, ownWindow bool) {
 	var head struct {
-		Type  string `json:"type"`
-		ID    string `json:"id"`
-		Login bool   `json:"login"`
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		Login   bool   `json:"login"`
+		URL     string `json:"url"`
+		Visible *bool  `json:"visible"`
 	}
 	if json.Unmarshal(raw, &head) != nil || head.Type == "" {
 		return
+	}
+	// Only the boot.dev tab you are looking at counts as "where you are".
+	if head.Type == "page" && ((head.Visible != nil && !*head.Visible) || !isBootDevURL(head.URL)) {
+		return
+	}
+	if !ownWindow && head.Type == "page" {
+		go switchToOwnChrome()
 	}
 	cp := json.RawMessage(append([]byte(nil), raw...))
 	evMu.Lock()
@@ -117,7 +126,7 @@ func pushEvent(raw []byte) {
 			lessonKeys = lessonKeys[1:]
 		}
 	}
-	doFill := head.Type == "page" && head.Login && time.Since(lastFill) > 20*time.Second
+	doFill := ownWindow && head.Type == "page" && head.Login && time.Since(lastFill) > 20*time.Second
 	if doFill {
 		if time.Since(lastFill) > 5*time.Minute {
 			fills = 0
@@ -228,7 +237,25 @@ func routes() {
 		writeJSON(w, askAI(req))
 	})
 	handle("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, aiStatus())
+		st := map[string]any{"version": version, "ext": extActive(3 * time.Minute), "ownChrome": usesOwnChrome(),
+			"window": len(liveConns()) > 0, "extPath": extensionDir()}
+		for k, v := range aiStatus() {
+			st[k] = v
+		}
+		writeJSON(w, st)
+	})
+	handle("/api/chrome", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Do string `json:"do"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		switch in.Do {
+		case "folder":
+			showFolder(extensionDir())
+		case "extensions":
+			openChromePage("chrome://extensions")
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	handle("/api/open", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
@@ -249,17 +276,25 @@ func main() {
 	token = hex.EncodeToString(tb)
 
 	// Already running? Show that dashboard instead of starting a second copy.
+	// An older version is closed (with its windows) and replaced by this one.
 	inst := filepath.Join(appDir(), "instance.txt")
 	if b, err := os.ReadFile(inst); err == nil {
 		u := strings.TrimSpace(string(b))
 		if resp, err := quick.Get(strings.Replace(u, "/?t=", "/api/status?t=", 1)); err == nil {
+			var st struct {
+				Version string `json:"version"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&st)
 			resp.Body.Close()
-			if resp.StatusCode == 200 {
+			if resp.StatusCode == 200 && st.Version == version {
 				openDefaultApp(u)
 				return
 			}
 		}
 	}
+	closeOldCopies()
+	writeExtension()
+	go startExtServer()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -270,8 +305,30 @@ func main() {
 	loadStore()
 	routes()
 	go ensureShortcut()
-	go startBootDevWindow(startURL)
+	if !usesOwnChrome() || os.Getenv("BOOTDASH_START") != "" {
+		go startBootDevWindow(startURL)
+	}
 	go cdpLoop()
 	go openDashboard(fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), token))
 	_ = http.Serve(ln, nil)
+}
+
+func isBootDevURL(u string) bool {
+	return strings.HasPrefix(u, "https://www.boot.dev/") || strings.HasPrefix(u, "https://boot.dev/") || sameHost(u, startURL)
+}
+
+var switchOnce sync.Once
+
+// switchToOwnChrome closes the app's own boot.dev window the first time your Chrome connects,
+// so there is only one boot.dev to look at.
+func switchToOwnChrome() {
+	switchOnce.Do(func() {
+		if os.Getenv("BOOTDASH_START") != "" {
+			return
+		}
+		for _, c := range liveConns() {
+			_, _ = c.call("Browser.close", map[string]any{}, 2*time.Second)
+			return
+		}
+	})
 }

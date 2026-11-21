@@ -137,6 +137,9 @@ func askClaude(key string, req aiRequest) aiResult {
 			sb.WriteString(c.Text)
 		}
 	}
+	if strings.TrimSpace(sb.String()) == "" {
+		return aiResult{OK: false, Error: "Claude sent back an empty reply. Try again, or pick another model in Settings."}
+	}
 	return aiResult{OK: true, Text: sb.String(), Via: "claude", Model: out.Model}
 }
 

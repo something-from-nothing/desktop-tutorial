@@ -21,6 +21,7 @@ h2{font-size:13px;margin:0 0 8px;color:var(--muted);text-transform:uppercase;let
 .pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);white-space:nowrap}
 .pill.ok{color:var(--green);border-color:#2b5a40}
 .pill.warn{color:var(--gold);border-color:#5a4a20}
+#chromePill{cursor:pointer}
 .icon{background:none;border:1px solid var(--line);color:var(--text);border-radius:10px;width:34px;height:34px;cursor:pointer;font-size:16px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:12px}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
@@ -82,9 +83,28 @@ label.f{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
 <div class="top">
   <div class="logo">B</div>
   <div class="grow"><h1>Boot.dev Dashboard</h1><div class="sub" id="seen">Waiting for boot.dev</div></div>
+  <span class="pill" id="chromePill" style="display:none">Chrome</span>
   <span class="pill" id="link">Checking AI</span>
   <button class="icon" id="openBoot" title="Show boot.dev">↗</button>
   <button class="icon" id="gear" title="Settings">⚙</button>
+</div>
+
+<div class="card" id="chromeCard" style="display:none">
+  <h2>Use your normal Chrome</h2>
+  <div class="sub" id="chromeState">Not linked yet. Link it once and any boot.dev tab in Chrome feeds this dashboard.</div>
+  <ol class="sub" style="margin:8px 0 0;padding-left:18px">
+    <li>Press <b>Open Chrome extensions</b>.</li>
+    <li>Turn on <b>Developer mode</b> (top right of that page).</li>
+    <li>Press <b>Load unpacked</b> and choose the folder below (press <b>Copy folder path</b>, then paste it into the folder box).</li>
+    <li>Refresh your boot.dev tab.</li>
+  </ol>
+  <div class="note" id="extPath" style="word-break:break-all;margin-top:6px"></div>
+  <div class="btns">
+    <button class="b primary" id="openExt">Open Chrome extensions</button>
+    <button class="b" id="copyPath">Copy folder path</button>
+    <button class="b" id="showFolder">Show folder</button>
+    <button class="b" id="hideChrome">Hide</button>
+  </div>
 </div>
 
 <div class="card">
@@ -249,6 +269,7 @@ function lessonContext(id) {
     const rs = JSON.stringify(rest); if (rs.length > 2 && rs.length < 3000) parts.push('Other lesson data: ' + rs);
   }
   if (S.page && S.page.lessonId === id && S.page.code) parts.push('My current code in the editor:\n```\n' + S.page.code.slice(0, 8000) + '\n```');
+  if (S.page && S.page.lessonId === id && S.page.output) parts.push('Output from my last Run:\n```\n' + S.page.output.slice(0, 3000) + '\n```');
   return parts.join('\n\n');
 }
 function systemPrompt(mode) {
@@ -265,7 +286,7 @@ function systemPrompt(mode) {
 const ASK = {
   explain: 'Break this lesson down for me: what is it asking, which ideas is it testing, and what is a sensible plan of attack? Finish with one small hint.',
   hint: 'Give me the next single hint, building on what we have covered so far. Do not solve it.',
-  check: 'Look at my current code. What is wrong or missing? Point to the line and explain why, without rewriting the whole thing.',
+  check: 'Look at my current code and the output from my last Run. What is wrong or missing? Point to the line and explain why, without rewriting the whole thing. Here is the latest code and output:',
   walk: 'Walk me through the full solution step by step.',
 };
 
@@ -274,13 +295,18 @@ async function runAI(mode, freeText, extra) {
   if (mode === 'walk' && S.settings.level !== 'full') { toast('Walkthroughs are off. Turn them on in Settings under Help level.'); return; }
   const chat = S.chats[id] = S.chats[id] || [];
   const ask = freeText || ASK[mode] || '';
-  const userMsg = (chat.length ? '' : lessonContext(id) + '\n\n') + (extra ? extra + '\n\n' : '') + ask;
+  let fresh = '';
+  if (chat.length && (mode === 'check' || mode === 'why') && S.page && S.page.lessonId === id) {
+    if (S.page.code) fresh += '\n\nMy code now:\n```\n' + S.page.code.slice(0, 8000) + '\n```';
+    if (S.page.output) fresh += '\n\nOutput from my last Run:\n```\n' + S.page.output.slice(0, 3000) + '\n```';
+  }
+  const userMsg = (chat.length ? '' : lessonContext(id) + '\n\n') + (extra ? extra + '\n\n' : '') + ask + fresh;
   chat.push({ role: 'user', content: userMsg, show: freeText || labelFor(mode) });
   S.busy = true; renderChat(true);
   const res = await H.ai({ system: systemPrompt(mode), messages: chat.map(m => ({ role: m.role, content: m.content })), max_tokens: 1400, model: S.settings.model || 'claude-sonnet-5-5', source: 'bootdev-dashboard' }).catch(e => ({ ok: false, error: String(e) }));
   S.busy = false;
-  if (res && res.ok) { chat.push({ role: 'assistant', content: res.text }); noteHelp(id, mode); refreshLink(res.via); }
-  else { chat.pop(); toast('AI error: ' + ((res && res.error) || 'no reply')); refreshLink(); }
+  if (res && res.ok && String(res.text || '').trim()) { chat.push({ role: 'assistant', content: res.text }); noteHelp(id, mode); refreshLink(res.via); S.aiError = ''; }
+  else { chat.pop(); S.aiError = (res && res.error) || 'The AI sent back an empty reply. Try again, or pick another model in Settings.'; refreshLink(); }
   renderChat(false);
   jset('chat:' + id, chat.slice(-20));
 }
@@ -309,6 +335,7 @@ async function poll() {
 }
 function handle(e) {
   if (e.type === 'page') {
+    if (e.visible === false) return;
     S.page = e; $('seen').textContent = 'Live: ' + (e.title || '').replace(/\s*\|\s*Boot\.dev\s*$/, '');
     let changed = false;
     if (e.level != null && e.level !== S.stats.level) { S.stats.level = e.level; changed = true; }
@@ -316,7 +343,11 @@ function handle(e) {
     if (e.streak != null && e.streak !== S.stats.streak) { S.stats.streak = e.streak; changed = true; }
     if (changed) { S.stats.at = Date.now(); jset('stats', S.stats); }
     if (e.chapters && e.chapters.list && e.chapters.list.length) { const cl = lessonOf(S.current); const name = e.chapters.course || (cl && cl.lesson.courseTitle) || 'Current course'; S.courses[name] = { list: e.chapters.list, at: Date.now() }; S.lastCourse = name; jset('courses', { map: S.courses, last: name }); }
-    if (e.lessonId && e.lessonId !== S.current) setCurrent(e.lessonId);
+    if (e.lessonId && e.lessonId !== S.current) { S.lastOutput = e.output || ''; setCurrent(e.lessonId); }
+    else if (e.lessonId && (e.output || '') !== S.lastOutput) {
+      S.lastOutput = e.output || '';
+      if (/Traceback|Error:|error:|Exception/.test(S.lastOutput) && S.settings.auto !== 'off') runAI('why', 'Why did my code error?', 'I just pressed Run and got an error.');
+    }
     renderStats(); renderCourse();
   } else if (e.type === 'lesson_data') {
     S.lessons[e.id] = e.data;
@@ -333,11 +364,13 @@ function handle(e) {
 }
 function onAction(e) {
   const id = e.id && lessonOf(e.id) ? e.id : (S.current && /lesson|submit|run|check|grade/i.test(e.path) ? S.current : '');
-  if (!id || /boots|chat|note|bookmark|spellbook|feedback|report|reset|interview/i.test(e.path)) return;
+  if (!id || /boots|chat|note|bookmark|spellbook|feedback|report|reset|interview|solution|code_history|share|view|potion|reward/i.test(e.path)) return;
   const body = String(e.body || '');
   let verdict = null;
-  const m = body.match(/"(passed|success|isCorrect|correct|allPassed|allTestsPassed)"\s*:\s*(true|false)/i);
+  const m = body.match(/"[A-Za-z]*(passed|pass|success|successful|correct|isCorrect|allPassed)"\s*:\s*(true|false)/i);
+  const f = body.match(/"(failed|failures|numFailed|failedTests)"\s*:\s*(\d+)/i);
   if (m) verdict = m[2] === 'true';
+  else if (f) verdict = +f[2] === 0;
   else if (e.status >= 400 && e.status < 500) verdict = false;
   if (verdict === false) {
     bump(id, 'fails', 2);
@@ -348,7 +381,7 @@ function onAction(e) {
   }
 }
 async function setCurrent(id) {
-  S.current = id;
+  S.current = id; S.aiError = '';
   if (!S.chats[id]) S.chats[id] = await jget('chat:' + id, []);
   renderLesson(); renderChat(false); maybeAuto();
 }
@@ -377,12 +410,13 @@ function renderLesson() {
 }
 function renderChat(waiting) {
   const box = $('ai'); const chat = S.chats[S.current] || [];
+  document.querySelectorAll('#lessonBtns button, #askBtn').forEach(b => b.disabled = !!waiting);
   if (!S.current) { box.style.display = 'none'; return; }
   box.style.display = 'block';
-  if (!chat.length && !waiting) { box.className = 'ai empty'; box.textContent = 'Press Explain this, or ask a question below.'; return; }
+  const err = S.aiError ? '<p style="color:var(--red)">' + esc(S.aiError) + '</p>' : '';
+  if (!chat.length && !waiting) { box.className = 'ai' + (err ? '' : ' empty'); box.innerHTML = err || 'Press Explain this, or ask a question below.'; return; }
   box.className = 'ai';
-  box.innerHTML = chat.map(m => m.role === 'user' ? '<div class="msg-me">You: ' + esc(m.show || 'Question') + '</div>' : md(m.content)).join('') + (waiting ? '<p><span class="spin"></span>Thinking...</p>' : '');
-  document.querySelectorAll('#lessonBtns button, #askBtn').forEach(b => b.disabled = !!waiting);
+  box.innerHTML = chat.map(m => m.role === 'user' ? '<div class="msg-me">You: ' + esc(m.show || 'Question') + '</div>' : md(m.content)).join('') + (waiting ? '<p><span class="spin"></span>Thinking...</p>' : err);
 }
 function renderCourse() {
   const name = S.lastCourse || Object.keys(S.courses)[0]; const c = name && S.courses[name];
@@ -437,17 +471,36 @@ async function saveSettings() {
   $('saveNote').textContent = r && r.ok ? 'Saved.' : 'Could not save: ' + ((r && r.error) || '');
   await loadSettings(); renderLesson(); refreshLink();
 }
+function chromeStatus(s) {
+  if (window.Android || !s || s.extPath == null) return;
+  $('extPath').textContent = s.extPath;
+  const pill = $('chromePill'); pill.style.display = '';
+  if (s.ext) { pill.className = 'pill ok'; pill.textContent = 'Chrome linked'; $('chromeCard').style.display = 'none'; }
+  else {
+    pill.className = 'pill warn'; pill.textContent = s.ownChrome ? 'Chrome: open boot.dev' : 'Chrome not linked';
+    const hidden = S.hideChrome;
+    $('chromeCard').style.display = !hidden || S.showChrome ? '' : 'none';
+    $('chromeState').textContent = s.ownChrome ? 'Linked before. Open or refresh a boot.dev tab in Chrome and it will connect.' : 'Not linked yet. Link it once and any boot.dev tab in Chrome feeds this dashboard.';
+  }
+}
 async function refreshLink(via) {
   const el = $('link');
-  if (via) { el.className = 'pill ok'; el.textContent = via === 'llmchat' ? 'Linked to LLM Chat' : 'Claude direct'; return; }
+  if (via) { el.className = 'pill ok'; el.textContent = via === 'llmchat' ? 'Linked to LLM Chat' : 'Claude direct'; }
   const s = await H.status().catch(() => null);
+  chromeStatus(s);
   if (s && s.llmchat) { el.className = 'pill ok'; el.textContent = 'Linked to LLM Chat'; }
-  else if (s && s.claude) { el.className = 'pill warn'; el.textContent = 'Claude direct'; }
-  else { el.className = 'pill warn'; el.textContent = 'AI not linked'; }
+  else if (s && s.claude) { el.className = 'pill ' + (via ? 'ok' : 'warn'); el.textContent = 'Claude direct'; }
+  else if (!via) { el.className = 'pill warn'; el.textContent = 'AI not linked'; }
 }
 
 // Wiring
 $('gear').onclick = () => $('drawer').classList.add('open');
+$('chromePill').onclick = () => { S.showChrome = true; $('chromeCard').style.display = ''; };
+$('openExt').onclick = () => api('/api/chrome', { do: 'extensions' });
+$('showFolder').onclick = () => api('/api/chrome', { do: 'folder' });
+$('copyPath').onclick = async () => { try { await navigator.clipboard.writeText($('extPath').textContent); toast('Folder path copied'); } catch (e) { toast('Select the path and copy it'); } };
+$('hideChrome').onclick = () => { S.hideChrome = true; S.showChrome = false; $('chromeCard').style.display = 'none'; };
+setInterval(() => refreshLink(), 15000);
 $('openBoot').onclick = () => H.open(S.page && /boot\.dev/.test(S.page.url) ? S.page.url : 'https://www.boot.dev/dashboard');
 $('close').onclick = () => $('drawer').classList.remove('open');
 $('drawer').onclick = e => { if (e.target.id === 'drawer') $('drawer').classList.remove('open'); };
@@ -464,7 +517,7 @@ $('weak').onclick = e => { const b = e.target.closest('button[data-quiz]'); if (
   S.stats = await jget('stats', {}); S.weak = await jget('weak', {});
   const c = await jget('courses', null); if (c) { S.courses = c.map || {}; S.lastCourse = c.last; }
   renderStats(); renderWeak(); renderCourse(); refreshLink();
-  if (!S.settings.email || !S.settings.hasPassword) $('drawer').classList.add('open');
+  if (!S.settings.bridgeKey && !S.settings.hasClaudeKey) $('drawer').classList.add('open');
   poll();
 })();
 </script>

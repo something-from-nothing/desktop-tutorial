@@ -83,3 +83,14 @@ func ensureShortcut() {
 		_ = os.WriteFile(flag, []byte(exe), 0o600)
 	}
 }
+
+// killOldCopies ends other copies of this app and the dashboard window they opened.
+func killOldCopies(dir string) {
+	pid := os.Getpid()
+	ps := "Get-CimInstance Win32_Process | Where-Object { ($_.Name -like 'BootDevDashboard*.exe' -and $_.ProcessId -ne " + itoa(pid) + ") -or ($_.CommandLine -like '*" + strings.ReplaceAll(filepath.Join(dir, "dashboard-window"), "'", "''") + "*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = cmd.Run()
+}
+
+func showFolder(dir string) { _ = exec.Command("explorer.exe", dir).Start() }

@@ -185,7 +185,7 @@ func (c *cdpConn) readLoop() {
 				Payload string `json:"payload"`
 			}
 			if json.Unmarshal(m.Params, &p) == nil && p.Name == "__bdHost" {
-				pushEvent([]byte(p.Payload))
+				pushEvent([]byte(p.Payload), true)
 			}
 		}
 	}
@@ -218,6 +218,10 @@ func openBootDev(url string) {
 	if cs := liveConns(); len(cs) > 0 {
 		_, _ = cs[0].call("Page.navigate", map[string]any{"url": url}, 5*time.Second)
 		_, _ = cs[0].call("Page.bringToFront", map[string]any{}, 3*time.Second)
+		return
+	}
+	if usesOwnChrome() {
+		openDefault(url) // your normal browser, where the extension is
 		return
 	}
 	go startBootDevWindow(url)

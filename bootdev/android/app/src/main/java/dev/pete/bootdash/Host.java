@@ -43,6 +43,7 @@ final class Host {
         try { o = new JSONObject(json); } catch (Exception e) { return; }
         String type = o.optString("type");
         if (type.isEmpty()) return;
+        if (type.equals("page") && !o.optString("url").startsWith("https://www.boot.dev/") && !o.optString("url").startsWith("https://boot.dev/")) return;
         seq++;
         ring.add(new Object[]{seq, json});
         if (ring.size() > 600) ring.subList(0, 100).clear();
