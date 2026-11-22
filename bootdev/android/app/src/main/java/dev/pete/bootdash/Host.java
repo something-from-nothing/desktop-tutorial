@@ -25,6 +25,7 @@ final class Host {
     private String latestPage = null;
     private final LinkedHashMap<String, String> lessons = new LinkedHashMap<>();
     private long lastFill = 0, fillWindow = 0;
+    private String badPw = "";
     private int fills = 0;
 
     final BootSide bootSide = new BootSide();
@@ -47,9 +48,13 @@ final class Host {
         seq++;
         ring.add(new Object[]{seq, json});
         if (ring.size() > 600) ring.subList(0, 100).clear();
+        if (type.equals("login") && !o.optBoolean("ok")) {
+            int st = o.optInt("status");
+            if (st == 400 || st == 401 || st == 403 || st == 404) badPw = Secrets.open(act, prefs.getString("passwordEnc", ""));
+        }
         if (type.equals("page")) {
             latestPage = json;
-            if (o.optBoolean("login")) maybeSignIn();
+            if (!o.has("level") || o.isNull("level")) maybeSignIn(false);
         } else if (type.equals("lesson_data")) {
             String id = o.optString("id");
             lessons.remove(id);
@@ -83,21 +88,32 @@ final class Host {
         return sb.append("],\"seq\":").append(last).append('}').toString();
     }
 
-    /** Fills boot.dev's sign in form with the saved account (a few tries at most). */
-    private void maybeSignIn() {
+    /** Signs in to boot.dev with the saved email and password (boot.dev's own email sign in). */
+    private void maybeSignIn(boolean force) {
         long now = System.currentTimeMillis();
-        if (now - lastFill < 20000) return;
-        if (now - fillWindow > 300000) { fillWindow = now; fills = 0; }
-        if (fills >= 4) return;
         final String email = prefs.getString("email", "");
         final String pass = Secrets.open(act, prefs.getString("passwordEnc", ""));
-        if (email.isEmpty() || pass.isEmpty()) return;
-        fills++;
+        if (email.isEmpty() || pass.isEmpty()) {
+            if (force) push("{\"type\":\"login\",\"ok\":false,\"status\":0,\"error\":\"Add your boot.dev email and password in Settings first.\"}");
+            return;
+        }
+        if (!force) {
+            if (pass.equals(badPw) || now - lastFill < 45000) return;
+            if (now - fillWindow > 600000) { fillWindow = now; fills = 0; }
+            if (fills >= 3) return;
+            fills++;
+        }
         lastFill = now;
-        final String js = "window.__bdFill ? window.__bdFill(" + JSONObject.quote(email) + "," + JSONObject.quote(pass) + ") : 'noreader'";
-        act.boot.postDelayed(() -> act.boot.evaluateJavascript(js, null), 700);
-        act.boot.postDelayed(() -> act.boot.evaluateJavascript(
-            "(document.querySelector('input[type=password]') && !document.querySelector('input[type=password]').value) ? " + js + " : 'done'", null), 3200);
+        final String js = "(async function(e,p){var out;try{var r=await fetch('https://api.boot.dev/v1/auth/password/login',{method:'POST',credentials:'include',mode:'cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e,password:p})});var msg='';try{var j=await r.json();msg=j.error||j.message||'';}catch(x){}out={type:'login',ok:r.ok,status:r.status,error:String(msg).slice(0,200)};}catch(err){out={type:'login',ok:false,status:0,error:String(err).slice(0,200)};}"
+            + "if(out.ok)setTimeout(function(){location.href='https://www.boot.dev/dashboard';},400);"
+            + "if(!out.ok&&out.status===429)out.error='Too many sign in attempts. Wait a minute, then try again.';"
+            + "if(!out.ok&&(out.status===400||out.status===401||out.status===403||out.status===404)&&!out.error)out.error='boot.dev did not accept that email and password.';"
+            + "BootHost.push(JSON.stringify(out));})(" + JSONObject.quote(email) + "," + JSONObject.quote(pass) + ")";
+        act.boot.postDelayed(() -> {
+            String u = act.boot.getUrl();
+            if (u == null || !u.startsWith("https://www.boot.dev")) { act.boot.loadUrl("https://www.boot.dev/"); act.boot.postDelayed(() -> act.boot.evaluateJavascript(js, null), 4000); }
+            else act.boot.evaluateJavascript(js, null);
+        }, force ? 0 : 2500);
     }
 
     private JSONObject publicSettings() {
@@ -148,6 +164,7 @@ final class Host {
                 }
                 if (!in.optString("claudeKey").isEmpty()) ed.putString("claudeEnc", Secrets.seal(act, in.optString("claudeKey")));
                 ed.apply();
+                synchronized (Host.this) { badPw = ""; fills = 0; }
                 return "{\"ok\":true}";
             } catch (Exception e) {
                 return "{\"ok\":false,\"error\":" + JSONObject.quote(String.valueOf(e.getMessage())) + "}";
@@ -178,6 +195,10 @@ final class Host {
                 } catch (Exception e) { }
                 done(id, o.toString());
             });
+        }
+
+        @JavascriptInterface public void signIn() {
+            act.runOnUiThread(() -> { act.show(false); maybeSignIn(true); });
         }
 
         @JavascriptInterface public void openBoot(final String url) {

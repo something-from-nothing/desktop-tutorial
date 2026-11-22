@@ -16,7 +16,7 @@ import (
 // Your own Chrome: the "Boot.dev Dashboard Link" extension reads your normal boot.dev tab
 // and sends updates here, on a fixed port that only this PC can reach.
 
-const version = "6"
+const version = "7"
 const extPort = "47822"
 
 //go:embed extension/manifest.json extension/relay.js extension/background.js extension/icon128.png

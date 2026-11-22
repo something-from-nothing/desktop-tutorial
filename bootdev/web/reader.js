@@ -32,7 +32,7 @@
   function onApi(url, method, status, text) {
     if (!url || url.indexOf('api.boot.dev') < 0) return;
     var path = (url.split('/v1/')[1] || '').split('?')[0];
-    if (/^a\//.test(path)) return; // analytics pings
+    if (/^a\//.test(path) || /^auth\//.test(path)) return; // analytics pings and sign in (never pass tokens on)
     var j = null;
     try { j = JSON.parse(text); } catch (e) {}
     var id = (path.match(UUID) || [])[0] || '';

@@ -84,8 +84,6 @@ var (
 	latestPage json.RawMessage
 	lessonData = map[string]json.RawMessage{}
 	lessonKeys []string
-	lastFill   time.Time
-	fills      int
 )
 
 func pushEvent(raw []byte, ownWindow bool) {
@@ -95,6 +93,7 @@ func pushEvent(raw []byte, ownWindow bool) {
 		Login   bool   `json:"login"`
 		URL     string `json:"url"`
 		Visible *bool  `json:"visible"`
+		Level   *int   `json:"level"`
 	}
 	if json.Unmarshal(raw, &head) != nil || head.Type == "" {
 		return
@@ -126,38 +125,14 @@ func pushEvent(raw []byte, ownWindow bool) {
 			lessonKeys = lessonKeys[1:]
 		}
 	}
-	doFill := ownWindow && head.Type == "page" && head.Login && time.Since(lastFill) > 20*time.Second
-	if doFill {
-		if time.Since(lastFill) > 5*time.Minute {
-			fills = 0
-		}
-		if fills >= 4 {
-			doFill = false
-		} else {
-			fills++
-			lastFill = time.Now()
-		}
-	}
 	evMu.Unlock()
-	if doFill {
-		go autoLogin()
+	// Signed out in the app's own boot.dev window? Sign in with the saved email and password.
+	if ownWindow && head.Type == "page" && head.Level == nil {
+		go func() {
+			time.Sleep(3 * time.Second) // let the page finish loading first
+			signIn(false)
+		}()
 	}
-}
-
-// autoLogin fills boot.dev's sign in form with the saved account, if there is one.
-func autoLogin() {
-	email, pass := savedLogin()
-	if email == "" || pass == "" {
-		return
-	}
-	e1, _ := json.Marshal(email)
-	e2, _ := json.Marshal(pass)
-	expr := fmt.Sprintf("window.__bdFill ? window.__bdFill(%s, %s) : 'noreader'", e1, e2)
-	time.Sleep(700 * time.Millisecond)
-	cdpEvalAll(expr)
-	// Two step forms show the password box after the email: try once more shortly after.
-	time.Sleep(2500 * time.Millisecond)
-	cdpEvalAll(fmt.Sprintf("(document.querySelector('input[type=password]') && !document.querySelector('input[type=password]').value && window.__bdFill) ? window.__bdFill(%s, %s) : 'done'", e1, e2))
 }
 
 func routes() {
@@ -243,6 +218,9 @@ func routes() {
 			st[k] = v
 		}
 		writeJSON(w, st)
+	})
+	handle("/api/signin", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, signIn(true))
 	})
 	handle("/api/chrome", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

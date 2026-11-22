@@ -114,6 +114,9 @@ func saveSettings(in map[string]string) error {
 		return err
 	}
 	cur = next
+	signMu.Lock()
+	signBadPw, signTries = "", 0
+	signMu.Unlock()
 	return nil
 }
 

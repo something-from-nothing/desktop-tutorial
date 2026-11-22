@@ -107,6 +107,12 @@ label.f{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
   </div>
 </div>
 
+<div class="card" id="signCard" style="display:none">
+  <h2>Boot.dev sign in</h2>
+  <div class="sub" id="signState">The boot.dev window isn't signed in.</div>
+  <div class="btns"><button class="b primary" id="signIn2">Sign in with my saved email and password</button><button class="b" id="signSet">Change email or password</button></div>
+</div>
+
 <div class="card">
   <div class="stats">
     <div class="stat"><div class="k">Level</div><div class="v" id="lvl">?</div></div>
@@ -150,7 +156,9 @@ label.f{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
     <input id="sEmail" type="email" autocomplete="off" placeholder="you@example.com">
     <label class="f">Boot.dev password</label>
     <input id="sPass" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved one">
-    <div class="note" id="passNote">Saved encrypted on this device only. The app fills the boot.dev sign in page for you, so you only sign in once.</div>
+    <div class="note" id="passNote">Saved encrypted on this device only. The app signs you in to boot.dev with these and keeps you signed in. Don't use the Google button in the boot.dev window: Google blocks sign in there.</div>
+    <div class="btns"><button class="b" id="signIn">Sign in to boot.dev now</button></div>
+    <div class="note" id="signNote"></div>
 
     <label class="f">LLM Chat link key</label>
     <input id="sKey" placeholder="Paste the key from LLM Chat settings (not your Claude key)">
@@ -336,7 +344,8 @@ async function poll() {
 function handle(e) {
   if (e.type === 'page') {
     if (e.visible === false) return;
-    S.page = e; $('seen').textContent = 'Live: ' + (e.title || '').replace(/\s*\|\s*Boot\.dev\s*$/, '');
+    S.page = e;
+    $('signCard').style.display = e.level == null && !/\/lessons\//.test(e.path || '') ? '' : 'none'; $('seen').textContent = 'Live: ' + (e.title || '').replace(/\s*\|\s*Boot\.dev\s*$/, '');
     let changed = false;
     if (e.level != null && e.level !== S.stats.level) { S.stats.level = e.level; changed = true; }
     if (e.xpPct != null && e.xpPct !== S.stats.xpPct) { S.stats.xpPct = e.xpPct; changed = true; }
@@ -360,6 +369,10 @@ function handle(e) {
     S.seenUser = S.seenUser || {}; S.seenUser[e.id] = 1;
   } else if (e.type === 'action') {
     onAction(e);
+  } else if (e.type === 'login') {
+    const msg = e.ok ? 'Signed in to boot.dev.' : (e.error === 'waiting' ? '' : 'Sign in failed: ' + (e.error || ('HTTP ' + e.status)));
+    if (msg) { toast(msg); $('signNote').textContent = msg; $('signState').textContent = msg; }
+    if (e.ok) $('signCard').style.display = 'none';
   }
 }
 function onAction(e) {
@@ -495,6 +508,14 @@ async function refreshLink(via) {
 
 // Wiring
 $('gear').onclick = () => $('drawer').classList.add('open');
+async function doSignIn() {
+  $('signNote').textContent = 'Signing in...'; $('signState').textContent = 'Signing in...';
+  const r = window.Android ? (Android.signIn(), { ok: null }) : await api('/api/signin', {}).catch(e => ({ ok: false, error: String(e) }));
+  if (r && r.ok === false && r.error && r.error !== 'waiting') { $('signNote').textContent = 'Sign in failed: ' + r.error; $('signState').textContent = $('signNote').textContent; }
+}
+$('signIn').onclick = async () => { if ($('sPass').value || $('sEmail').value !== (S.settings.email || '')) await saveSettings(); doSignIn(); };
+$('signIn2').onclick = doSignIn;
+$('signSet').onclick = () => $('drawer').classList.add('open');
 $('chromePill').onclick = () => { S.showChrome = true; $('chromeCard').style.display = ''; };
 $('openExt').onclick = () => api('/api/chrome', { do: 'extensions' });
 $('showFolder').onclick = () => api('/api/chrome', { do: 'folder' });
