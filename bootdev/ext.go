@@ -16,7 +16,7 @@ import (
 // Your own Chrome: the "Boot.dev Dashboard Link" extension reads your normal boot.dev tab
 // and sends updates here, on a fixed port that only this PC can reach.
 
-const version = "5"
+const version = "6"
 const extPort = "47822"
 
 //go:embed extension/manifest.json extension/relay.js extension/background.js extension/icon128.png
@@ -54,7 +54,7 @@ func usesOwnChrome() bool {
 	if extActive(14 * 24 * time.Hour) {
 		return true
 	}
-	t, err := time.Parse(time.RFC3339, storeGet("extSeen"))
+	t, err := time.Parse(time.RFC3339, storeGet("extSeenChrome"))
 	return err == nil && time.Since(t) < 14*24*time.Hour
 }
 
@@ -97,12 +97,16 @@ func startExtServer() {
 			http.Error(w, "bad json", 400)
 			return
 		}
+		// Only the real Chrome extension counts as "you use your own Chrome".
+		fromExt := strings.HasPrefix(r.Header.Get("Origin"), "chrome-extension://")
 		extMu.Lock()
-		first := extLast.IsZero() || time.Since(extLast) > time.Hour
-		extLast = time.Now()
+		first := fromExt && (extLast.IsZero() || time.Since(extLast) > time.Hour)
+		if fromExt {
+			extLast = time.Now()
+		}
 		extMu.Unlock()
 		if first {
-			storeSet("extSeen", time.Now().UTC().Format(time.RFC3339))
+			storeSet("extSeenChrome", time.Now().UTC().Format(time.RFC3339))
 		}
 		pushEvent(b, false)
 		w.WriteHeader(204)

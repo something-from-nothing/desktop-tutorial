@@ -220,8 +220,8 @@ func openBootDev(url string) {
 		_, _ = cs[0].call("Page.bringToFront", map[string]any{}, 3*time.Second)
 		return
 	}
-	if usesOwnChrome() {
-		openDefault(url) // your normal browser, where the extension is
+	if extActive(10 * time.Minute) {
+		openDefault(url) // your normal Chrome, where the extension is working
 		return
 	}
 	go startBootDevWindow(url)

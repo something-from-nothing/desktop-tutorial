@@ -103,7 +103,7 @@ func pushEvent(raw []byte, ownWindow bool) {
 	if head.Type == "page" && ((head.Visible != nil && !*head.Visible) || !isBootDevURL(head.URL)) {
 		return
 	}
-	if !ownWindow && head.Type == "page" {
+	if !ownWindow && head.Type == "page" && extActive(time.Minute) {
 		go switchToOwnChrome()
 	}
 	cp := json.RawMessage(append([]byte(nil), raw...))
