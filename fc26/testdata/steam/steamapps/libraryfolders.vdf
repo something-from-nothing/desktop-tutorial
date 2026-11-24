@@ -1,0 +1,23 @@
+"libraryfolders"
+{
+	"0"
+	{
+		"path"		"STEAMROOT"
+		"label"		""
+		"contentid"		"4412345678901234567"
+		"totalsize"		"0"
+		"apps"
+		{
+			"228980"		"181201253"
+		}
+	}
+	"1"
+	{
+		"path"		"LIB2ROOT"
+		"label"		"Games"
+		"apps"
+		{
+			"3405690"		"98784247808"
+		}
+	}
+}

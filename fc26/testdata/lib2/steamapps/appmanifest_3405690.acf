@@ -1,0 +1,21 @@
+"AppState"
+{
+	"appid"		"3405690"
+	"universe"		"1"
+	"LauncherPath"		"C:\\Program Files (x86)\\Steam\\steam.exe"
+	"name"		"EA SPORTS FC™ 26"
+	"StateFlags"		"4"
+	"installdir"		"FC 26"
+	"LastUpdated"		"1763500000"
+	"LastPlayed"		"1763800000"
+	"SizeOnDisk"		"98784247808"
+	"buildid"		"20512345"
+	"InstalledDepots"
+	{
+		"3405691"
+		{
+			"manifest"		"1234567890123456789"
+			"size"		"98784247808"
+		}
+	}
+}
