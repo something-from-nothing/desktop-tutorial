@@ -333,6 +333,10 @@ function renderSetup(st) {
   const todo = steps.filter(s => !s[1]).length;
   $('setupCard').classList.toggle('hide', !todo);
   if (!todo) return;
+  // Only rebuild when something changed, so a button isn't replaced while it's being clicked.
+  const key = steps.map(s => s[0] + !!s[1]).join('|');
+  if (S.setupKey === key) return;
+  S.setupKey = key;
   const ol = $('setupSteps'); ol.innerHTML = '';
   steps.forEach(([t, done, label, fn]) => {
     const li = document.createElement('li'); li.className = done ? 'done' : ''; li.textContent = t + ' ';
