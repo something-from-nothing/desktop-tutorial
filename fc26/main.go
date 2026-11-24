@@ -130,7 +130,8 @@ func stateFor(local bool) map[string]any {
 		"version": version, "seq": stateSeq.Load(), "now": now.Unix(), "pc": hostName(),
 		"steam": steamSnapshot(), "local": localSnapshot(), "session": sessionSnapshot(now),
 		"club": cs, "explain": ex,
-		"weak": weakRanked(), "ai": aiStatus(), "platform": platformName(), "hotkey": hotkeyStatus(),
+		"trial": trialOf(s, steamSnapshot(), localSnapshot(), sessionSnapshot(now), cs, now),
+		"weak":  weakRanked(), "ai": aiStatus(), "platform": platformName(), "hotkey": hotkeyStatus(),
 		"steamSignedIn": s.SteamID != "", "steamName": s.SteamName, "hasSteamKey": s.SteamKeyEnc != "",
 	}
 	if local {

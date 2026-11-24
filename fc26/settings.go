@@ -31,6 +31,8 @@ type settings struct {
 	AutoGap     int            `json:"autoGap"`     // seconds between automatic explanations
 	AutoPerHour int            `json:"autoPerHour"` // most automatic explanations in an hour
 	PhoneLink   string         `json:"phoneLink"`   // "on" once a phone is paired
+	Trial       string         `json:"trial"`       // "on": show the EA Play trial countdown
+	TrialHours  int            `json:"trialHours"`  // length of the trial (10 hours for FC 26)
 	Devices     []pairedDevice `json:"devices,omitempty"`
 }
 
@@ -40,7 +42,7 @@ var (
 )
 
 func defaultSettings() settings {
-	return settings{Model: "claude-sonnet-5-5", Auto: "off", AutoGap: 90, AutoPerHour: 12, PhoneLink: "off"}
+	return settings{Model: "claude-sonnet-5-5", Auto: "off", AutoGap: 90, AutoPerHour: 12, PhoneLink: "off", Trial: "on", TrialHours: 10}
 }
 
 func settingsPath() string { return filepath.Join(appDir(), "settings.json") }
@@ -74,6 +76,12 @@ func clampSettings(s *settings) {
 	}
 	if s.Model == "" {
 		s.Model = "claude-sonnet-5-5"
+	}
+	if s.Trial != "off" {
+		s.Trial = "on"
+	}
+	if s.TrialHours < 1 || s.TrialHours > 100 {
+		s.TrialHours = 10
 	}
 }
 
@@ -144,6 +152,12 @@ func saveSettings(in map[string]string, fromPhone bool) error {
 		if v, err := strconv.Atoi(in["autoPerHour"]); err == nil {
 			next.AutoPerHour = v
 		}
+		if v := in["trial"]; v != "" {
+			next.Trial = v
+		}
+		if v, err := strconv.Atoi(in["trialHours"]); err == nil {
+			next.TrialHours = v
+		}
 		if fromPhone {
 			return nil
 		}
@@ -191,7 +205,7 @@ func publicSettings() map[string]any {
 	return map[string]any{
 		"steamId": cur.SteamID, "steamName": cur.SteamName, "hasSteamKey": cur.SteamKeyEnc != "",
 		"bridgeKey": cur.BridgeKey, "hasClaudeKey": cur.ClaudeEnc != "", "model": cur.Model,
-		"auto": cur.Auto, "autoGap": cur.AutoGap, "autoPerHour": cur.AutoPerHour,
+		"auto": cur.Auto, "autoGap": cur.AutoGap, "autoPerHour": cur.AutoPerHour, "trial": cur.Trial, "trialHours": cur.TrialHours,
 		"phoneLink": cur.PhoneLink, "devices": devs,
 	}
 }

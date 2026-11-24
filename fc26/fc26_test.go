@@ -831,3 +831,52 @@ func TestRedact(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+
+func TestTrialCountdown(t *testing.T) {
+	fresh(t)
+	for in, want := range map[string]int{"7h 32m": 452, "07:32:10": 452, "45 min": 45, "9 hours 5 mins": 545, "2h": 120} {
+		if got, ok := parseDuration(in); !ok || got != want {
+			t.Errorf("%q: got %d %v, want %d", in, got, ok, want)
+		}
+	}
+	if _, ok := parseDuration("soon"); ok {
+		t.Error("nonsense should not parse")
+	}
+	s := defaultSettings()
+	if s.Trial != "on" || s.TrialHours != 10 {
+		t.Fatal("trial countdown should default to on, 10 hours")
+	}
+	now := time.Date(2026, 11, 24, 20, 0, 0, 0, time.Local)
+	// From Steam: 3 hours played, plus 30 minutes running now.
+	si := sessionInfo{LoggedSec: 2*3600 + 1800, SessionSec: 1800, SessionStart: now.Unix() - 1800}
+	st := steamStats{Owned: &ownedGame{AppID: 3405690, Playtime: 180}}
+	ti := trialOf(s, st, localSteam{}, si, clubState{}, now)
+	if ti.UsedMin != 210 || ti.LeftMin != 390 || ti.Source != "Steam playtime" {
+		t.Fatalf("from steam: %+v", ti)
+	}
+	// The game's own timer wins, less play since it was read.
+	observe(now.Add(-40*time.Minute), true, "registry")
+	for i := 39; i >= 0; i-- {
+		observe(now.Add(-time.Duration(i)*time.Minute), true, "registry")
+	}
+	cs := clubState{TrialLeft: &stamped[int]{300, now.Add(-20 * time.Minute).Unix(), "Main menu"}}
+	ti = trialOf(s, st, localSteam{}, sessionSnapshot(now), cs, now)
+	if ti.LeftMin != 280 || ti.Source != "the game's own trial timer" {
+		t.Fatalf("from screen: %+v", ti)
+	}
+	// Out of time never goes negative.
+	ti = trialOf(s, steamStats{Owned: &ownedGame{Playtime: 900}}, localSteam{}, sessionInfo{}, clubState{}, now)
+	if ti.LeftMin != 0 || ti.Pct != 100 {
+		t.Fatalf("over the limit: %+v", ti)
+	}
+	// Read from a screen reply.
+	out, err := parseExplain(`{"screen":"Main menu","explanation":"Your trial has 6h 10m left.","trial_left":"6h 10m"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c2 clubState
+	mergeClub(&c2, out, 1)
+	if c2.TrialLeft == nil || c2.TrialLeft.V != 370 {
+		t.Fatalf("trial left not stored: %+v", c2.TrialLeft)
+	}
+}

@@ -199,3 +199,22 @@ func streakOf(all []session, now time.Time, loc *time.Location) (cur, best int, 
 	}
 	return
 }
+
+// playedSince is how many seconds the game ran after unix time t (closed sessions plus the one
+// going on now).
+func playedSince(t int64, now time.Time) int64 {
+	sesMu.Lock()
+	defer sesMu.Unlock()
+	all := append([]session(nil), sessions...)
+	if openStart > 0 {
+		all = append(all, session{Start: openStart, End: now.Unix()})
+	}
+	var n int64
+	for _, s := range all {
+		a, b := max(s.Start, t), s.End
+		if b > a {
+			n += b - a
+		}
+	}
+	return n
+}

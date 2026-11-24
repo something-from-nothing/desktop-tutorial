@@ -137,6 +137,15 @@ label.f{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
   </div>
 </div>
 
+<div class="card" id="trialCard">
+  <h2>EA Play trial</h2>
+  <div class="row"><div class="big" id="trialV">?</div><div class="sub" id="trialS"></div></div>
+  <div class="bar"><i id="trialBar" style="width:0"></i></div>
+  <div class="sub" id="trialSrc"></div>
+  <div class="warnline hide" id="trialWarn"></div>
+  <div class="note">The trial is 10 hours of play, and the clock runs whenever FC 26 is open, even in the background. If you buy the game, your progress carries over. EA's own timer is the one that counts: explain the screen that shows your trial time and this card uses that.</div>
+</div>
+
 <div class="card">
   <h2>Streak</h2>
   <div class="row"><div class="big" id="streakV">0 days</div><div class="grow"></div><div class="sub" id="bestV"></div></div>
@@ -215,6 +224,11 @@ label.f{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
       <div class="row">
         <div style="flex:1"><label class="f">At least this many seconds apart</label><input id="sGap" type="number" min="30" max="1800" step="10"></div>
         <div style="flex:1"><label class="f">At most this many an hour</label><input id="sPerHour" type="number" min="1" max="60"></div>
+      </div>
+      <label class="f">EA Play trial countdown</label>
+      <div class="row">
+        <select id="sTrial" style="flex:2"><option value="on">On (I'm on the 10 hour trial)</option><option value="off">Off (I own the full game)</option></select>
+        <input id="sTrialHours" type="number" min="1" max="100" style="flex:1" title="Trial length in hours">
       </div>
       <div class="note">Each automatic explanation sends one picture of the game window to Claude and uses API credit. These two limits cap how many can happen. Haiku is the cheapest model for auto mode.</div>
     </div>
@@ -311,7 +325,7 @@ function render(st) {
   else if (ai.claude) { ap.className = 'pill ok'; ap.textContent = 'Claude direct'; }
   else { ap.className = 'pill warn'; ap.textContent = 'AI not linked'; }
   if (!PHONE && st.phone) { const pp = $('phonePill'); const n = (S.settings.devices || []).length; pp.classList.toggle('hide', !n); pp.className = 'pill ' + (st.phone.on ? 'ok' : 'warn') + (n ? '' : ' hide'); pp.textContent = 'Phone linked'; }
-  renderSetup(st); renderStats(st); renderStreak(st); renderAch(st); renderExplain(st); renderClub(st); renderWeak(st); renderSteam(st);
+  renderSetup(st); renderStats(st); renderTrial(st); renderStreak(st); renderAch(st); renderExplain(st); renderClub(st); renderWeak(st); renderSteam(st);
   if (!PHONE) renderPhone(st);
 }
 
@@ -363,6 +377,21 @@ function tickSession() {
   else $('sesV').textContent = '?';
 }
 setInterval(tickSession, 1000);
+
+function renderTrial(st) {
+  const t = st.trial || {};
+  $('trialCard').classList.toggle('hide', !t.on);
+  if (!t.on) return;
+  $('trialV').textContent = hm(t.leftMin) + ' left';
+  $('trialS').textContent = 'of ' + (t.limitMin / 60) + ' hours · ' + hm(t.usedMin) + ' used';
+  $('trialBar').style.width = (t.pct || 0) + '%';
+  $('trialSrc').textContent = 'From ' + (t.source || 'nothing yet') + (t.screenAt ? ' (the game showed ' + hm(t.screenLeft) + ' left, ' + ago(t.screenAt) + ')' : '') + '.';
+  const w = $('trialWarn');
+  const msg = t.leftMin <= 0 ? 'Your trial time is used up. Buying FC 26 lets you carry on with the same progress.'
+    : t.leftMin <= 15 ? 'Under 15 minutes left. Finish your match and close FC 26 when you stop: the clock runs while it is open.'
+    : t.leftMin <= 60 ? 'Under an hour left. Close FC 26 when you are not playing: the clock runs while it is open.' : '';
+  w.textContent = msg; w.classList.toggle('hide', !msg);
+}
 
 function renderStreak(st) {
   const s = st.session || {};
@@ -547,7 +576,7 @@ async function loadSettings() {
   S.settings = Object.assign({ model: 'claude-sonnet-5-5', auto: 'off', autoGap: 90, autoPerHour: 12 }, await get('/api/settings').catch(() => ({})));
   const s = S.settings;
   $('sKey').value = s.bridgeKey || ''; $('sClaude').value = ''; $('sClaude').placeholder = s.hasClaudeKey ? 'Saved. Leave blank to keep it' : 'Optional';
-  $('sModel').value = s.model; $('sAuto').value = s.auto; $('sGap').value = s.autoGap; $('sPerHour').value = s.autoPerHour;
+  $('sModel').value = s.model; $('sAuto').value = s.auto; $('sGap').value = s.autoGap; $('sPerHour').value = s.autoPerHour; $('sTrial').value = s.trial || 'on'; $('sTrialHours').value = s.trialHours || 10;
   if (!PHONE) {
     $('sSteamKey').value = ''; $('sSteamKey').placeholder = s.hasSteamKey ? 'Saved. Leave blank to keep it' : 'Paste your key';
     $('sSteamWho').textContent = s.steamId ? 'Signed in as ' + (s.steamName || 'Steam ID ' + s.steamId) + '.' : 'Not signed in.';
@@ -558,7 +587,7 @@ async function loadSettings() {
   }
 }
 async function saveSettings() {
-  const o = { bridgeKey: $('sKey').value.trim(), model: $('sModel').value, auto: $('sAuto').value, autoGap: $('sGap').value, autoPerHour: $('sPerHour').value };
+  const o = { bridgeKey: $('sKey').value.trim(), model: $('sModel').value, auto: $('sAuto').value, autoGap: $('sGap').value, autoPerHour: $('sPerHour').value, trial: $('sTrial').value, trialHours: $('sTrialHours').value };
   if ($('sClaude').value) o.claudeKey = $('sClaude').value.trim();
   if (!PHONE && $('sSteamKey').value) o.steamKey = $('sSteamKey').value.trim();
   const r = await post('/api/settings', o).catch(e => ({ ok: false, error: String(e) }));

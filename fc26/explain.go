@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ import (
 var fmTopics = []string{"Attacking", "Finishing", "Defending", "Skill moves", "Set pieces", "Tactics",
 	"Formations", "Ultimate Team", "Squad building", "Chemistry", "Transfers", "Career Mode", "Player development", "Menus and settings"}
 
-const explainSystem = `You are an EA SPORTS FC 26 coach sitting beside Pete while he plays FC 26 on PC (bought through Steam, runs through the EA app). He wants to get better at the game.
+const explainSystem = `You are an EA SPORTS FC 26 coach sitting beside Pete while he plays FC 26 on PC through Steam and the EA app, on the EA Play 10 hour trial (his progress carries over if he buys the game). He wants to get better at the game, and his trial time is limited, so favour advice that makes the most of it.
 You are given a screenshot of the FC 26 window only.
 Reply with ONE JSON object and nothing else, in this shape:
 {
@@ -33,6 +34,7 @@ Reply with ONE JSON object and nothing else, in this shape:
  "topics": ["which of these the screen is about: TOPICS"],
  "mistakes": [{"topic": "one of the topics", "note": "a problem you can see on screen, e.g. low chemistry, a player out of position, poor match stats; empty list if none"}],
  "game_date": "the Career Mode date shown on screen as yyyy-mm-dd, or null",
+ "trial_left": "time left on his EA Play trial if the screen shows it, exactly as shown (e.g. 7h 32m or 07:32:10), or null",
  "club": {
    "name": "his club name or null",
    "league": "competition name or null",
@@ -55,6 +57,7 @@ type explainOut struct {
 	Topics      []string  `json:"topics"`
 	Mistakes    []mistake `json:"mistakes"`
 	GameDate    *string   `json:"game_date"`
+	TrialLeft   *string   `json:"trial_left"`
 	Club        *clubRead `json:"club"`
 }
 
@@ -138,6 +141,7 @@ type clubState struct {
 	Finances    *stamped[finances]   `json:"finances,omitempty"`
 	GameDate    *stamped[string]     `json:"gameDate,omitempty"`
 	Mode        *stamped[string]     `json:"mode,omitempty"`
+	TrialLeft   *stamped[int]        `json:"trialLeft,omitempty"` // minutes left, as read from the screen
 	UT          *stamped[utState]    `json:"ut,omitempty"`
 }
 
@@ -199,6 +203,11 @@ func mergeClub(cs *clubState, e explainOut, at int64) {
 	if e.GameDate != nil && dateRe.MatchString(*e.GameDate) {
 		if _, err := time.Parse("2006-01-02", *e.GameDate); err == nil {
 			cs.GameDate = &stamped[string]{*e.GameDate, at, sc}
+		}
+	}
+	if e.TrialLeft != nil {
+		if m, ok := parseDuration(*e.TrialLeft); ok {
+			cs.TrialLeft = &stamped[int]{m, at, sc}
 		}
 	}
 	if m := strings.TrimSpace(e.Mode); m != "" && !strings.EqualFold(m, "null") {
@@ -286,6 +295,77 @@ func mergeClub(cs *clubState, e explainOut, at int64) {
 		}
 		cs.Finances = &stamped[finances]{*f, at, sc}
 	}
+}
+
+// ---- EA Play trial countdown ----
+
+var (
+	hmRe    = regexp.MustCompile(`(?i)(\d+)\s*h(?:ours?|rs?)?\s*(?:(\d+)\s*m(?:in(?:ute)?s?)?)?`)
+	onlyMRe = regexp.MustCompile(`(?i)^(\d+)\s*m(?:in(?:ute)?s?)?$`)
+	clockRe = regexp.MustCompile(`^(\d{1,2}):(\d{2})(?::(\d{2}))?$`)
+)
+
+// parseDuration reads trial time as the game shows it ("7h 32m", "45 min", "07:32:10") as minutes.
+func parseDuration(s string) (int, bool) {
+	s = strings.TrimSpace(s)
+	if m := clockRe.FindStringSubmatch(s); m != nil {
+		h, _ := strconv.Atoi(m[1])
+		mm, _ := strconv.Atoi(m[2])
+		return h*60 + mm, h <= 100
+	}
+	if m := onlyMRe.FindStringSubmatch(s); m != nil {
+		mm, _ := strconv.Atoi(m[1])
+		return mm, true
+	}
+	if m := hmRe.FindStringSubmatch(s); m != nil {
+		h, _ := strconv.Atoi(m[1])
+		mm, _ := strconv.Atoi(m[2])
+		return h*60 + mm, h <= 100
+	}
+	return 0, false
+}
+
+type trialInfo struct {
+	On         bool    `json:"on"`
+	LimitMin   int     `json:"limitMin"`
+	UsedMin    int     `json:"usedMin"`
+	LeftMin    int     `json:"leftMin"`
+	Pct        float64 `json:"pct"`
+	Source     string  `json:"source"`
+	ScreenAt   int64   `json:"screenAt,omitempty"`
+	ScreenLeft int     `json:"screenLeft,omitempty"`
+}
+
+// trialOf works out how much of the trial is left. The game's own figure (read from the screen)
+// wins, less any play since it was read. Otherwise it's the most of: Steam's playtime, Steam's
+// file on this PC and this app's log, plus the session going on now. EA's own clock is the one
+// that counts, so this is an estimate.
+func trialOf(s settings, st steamStats, ls localSteam, si sessionInfo, cs clubState, now time.Time) trialInfo {
+	ti := trialInfo{On: s.Trial == "on", LimitMin: s.TrialHours * 60}
+	closed := int((si.LoggedSec - si.SessionSec) / 60)
+	base, src := closed, "this app's log"
+	if st.Owned != nil && st.Owned.Playtime > base {
+		base, src = st.Owned.Playtime, "Steam playtime"
+	}
+	if ls.PlaytimeMin > base {
+		base, src = ls.PlaytimeMin, "Steam on this PC"
+	}
+	ti.UsedMin = base + int(si.SessionSec/60)
+	if cs.TrialLeft != nil {
+		left := cs.TrialLeft.V - int(playedSince(cs.TrialLeft.At, now)/60)
+		ti.ScreenAt, ti.ScreenLeft = cs.TrialLeft.At, cs.TrialLeft.V
+		ti.UsedMin = ti.LimitMin - left
+		src = "the game's own trial timer"
+	}
+	if ti.UsedMin < 0 {
+		ti.UsedMin = 0
+	}
+	ti.LeftMin = max(0, ti.LimitMin-ti.UsedMin)
+	if ti.LimitMin > 0 {
+		ti.Pct = min(100, 100*float64(ti.UsedMin)/float64(ti.LimitMin))
+	}
+	ti.Source = src
+	return ti
 }
 
 // ---- Weak topics: what you ask about and what goes wrong, ranked ----
