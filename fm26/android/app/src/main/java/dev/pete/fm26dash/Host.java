@@ -477,7 +477,7 @@ final class Host {
         try {
             TrustManager tm = new X509TrustManager() {
                 public void checkClientTrusted(X509Certificate[] c, String a) { }
-                public void checkServerTrusted(X509Certificate[] chain, String a) { got[0] = sha256(chain[0].getEncoded()); }
+                public void checkServerTrusted(X509Certificate[] chain, String a) throws java.security.cert.CertificateException { got[0] = sha256(chain[0].getEncoded()); }
                 public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
             };
             SSLContext ctx = SSLContext.getInstance("TLS");
