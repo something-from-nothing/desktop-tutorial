@@ -89,7 +89,11 @@ func askAI(req aiRequest) aiResult {
 		}
 	}
 	if claudeKey != "" {
-		return askClaude(claudeKey, req)
+		r := askClaude(claudeKey, req)
+		if !r.OK && strings.Contains(r.Error, "empty reply") {
+			r = askClaude(claudeKey, req) // an empty reply is usually a one off: try once more
+		}
+		return r
 	}
 	if bridgeErr == "" {
 		bridgeErr = "Add the LLM Chat link key (or a Claude key) in Settings."

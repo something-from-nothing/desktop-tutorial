@@ -569,7 +569,7 @@ $('gear').onclick = () => { loadSettings(); $('drawer').classList.add('open'); }
 $('close').onclick = () => $('drawer').classList.remove('open');
 $('drawer').onclick = e => { if (e.target.id === 'drawer') $('drawer').classList.remove('open'); };
 $('save').onclick = saveSettings;
-$('test').onclick = async () => { $('saveNote').textContent = 'Testing'; const r = await post('/api/ai', { system: 'Reply with the single word: linked', messages: [{ role: 'user', content: 'Test' }], max_tokens: 10, model: S.settings.model }).catch(e => ({ ok: false, error: String(e) })); $('saveNote').textContent = r && r.ok ? 'Working, via ' + (r.via === 'llmchat' ? 'LLM Chat' : 'Claude direct') + '.' : 'Not working: ' + ((r && r.error) || 'no reply'); };
+$('test').onclick = async () => { $('saveNote').textContent = 'Testing'; const r = await post('/api/ai', { system: 'Reply with the single word: linked', messages: [{ role: 'user', content: 'Test' }], max_tokens: 64, model: S.settings.model }).catch(e => ({ ok: false, error: String(e) })); $('saveNote').textContent = r && r.ok ? 'Working, via ' + (r.via === 'llmchat' ? 'LLM Chat' : 'Claude direct') + '.' : 'Not working: ' + ((r && r.error) || 'no reply'); };
 $('resetWeak').onclick = async () => { if (!confirmReset()) return; await post('/api/weak', { reset: true }); $('quiz').innerHTML = ''; toast('Weak topics cleared'); poll1(); };
 function confirmReset() { if (S.resetArmed && Date.now() - S.resetArmed < 4000) return true; S.resetArmed = Date.now(); toast('Press Clear weak topics again to confirm'); return false; }
 $('pairBtn').onclick = async () => { const r = await post('/api/phone', { do: 'pair' }); if (!r || !r.ok) toast('Couldn\'t open the phone link: ' + ((r && r.error) || '')); poll1(); };
