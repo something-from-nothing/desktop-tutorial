@@ -26,3 +26,8 @@ bootdev/android/.gradle/
 bootdev/android/app/build/
 bootdev/android/build/
 bootdev/android/app/src/main/res/mipmap-*/
+fm26/rsrc_windows_amd64.syso
+fm26/android/.gradle/
+fm26/android/app/build/
+fm26/android/build/
+fm26/android/app/src/main/res/mipmap-*/

@@ -1,0 +1,44 @@
+"UserLocalConfigStore"
+{
+	"Broadcast"
+	{
+		"Permissions"		"1"
+	}
+	"Software"
+	{
+		"Valve"
+		{
+			"Steam"
+			{
+				"apps"
+				{
+					"228980"
+					{
+						"LastPlayed"		"1700000000"
+					}
+					"3551360"
+					{
+						"LastPlayed"		"1763900000"
+						"Playtime2wks"		"312"
+						"Playtime"		"845"
+						"cloud"
+						{
+							"last_sync_state"		"synchronized"
+						}
+						"autocloud"
+						{
+							"lastlaunch"		"1763890000"
+							"lastexit"		"1763900000"
+						}
+					}
+				}
+				// a comment, as Steam sometimes writes
+				"LastPlayedTimesSyncTime"		"1763900100"
+			}
+		}
+	}
+	"WebStorage"
+	{
+		"key with \"quotes\""		"value with \\ backslash"
+	}
+}

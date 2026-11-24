@@ -1,0 +1,117 @@
+name: Build FM26 Dashboard
+
+# FM26 Dashboard: Windows EXE (Go, no installer) and Android APK, from fm26/.
+on:
+  push:
+    branches: [main]
+    paths: ["fm26/**", ".github/workflows/build-fm26.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-fm26
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Draw the icons
+        run: |
+          pip install --quiet pillow
+          python3 fm26/tools/make_icon.py build/icon fm26/android/app/src/main/res
+          python3 fm26/tools/make_syso.py build/icon/app.ico fm26/rsrc_windows_amd64.syso
+
+      # Tests run with fake Steam API answers, sample Steam files and sample screens (see fm26/testdata).
+      - name: Test and build the Windows EXE
+        working-directory: fm26
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+          GOOS=windows GOARCH=amd64 go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -H windowsgui" -o ../FM26Dashboard.exe .
+          ls -la ../FM26Dashboard.exe
+
+      # Every APK must be signed with the same key, or Android won't install an update over
+      # the old one. The key lives in GitHub's build cache (never in the code). Saving it as the
+      # repo secrets FM26DASH_KEYSTORE_BASE64 and FM26DASH_KEY_PASSWORD makes it permanent.
+      - name: Restore the signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.fm26dash-signing
+          key: fm26dash-signing-key-v1
+
+      - name: Set up the signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.FM26DASH_KEYSTORE_BASE64 }}
+          KEY_PASSWORD: ${{ secrets.FM26DASH_KEY_PASSWORD }}
+        run: |
+          dir="$HOME/.fm26dash-signing"
+          mkdir -p "$dir"
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$dir/secret.keystore"
+            store="$dir/secret.keystore"; pass="$KEY_PASSWORD"
+          else
+            store="$dir/fm26dash.keystore"
+            if [ ! -s "$store" ] || [ ! -s "$dir/password" ]; then
+              echo "::warning::Making a new signing key. Phones with an older build must uninstall it once."
+              openssl rand -base64 24 > "$dir/password"
+              keytool -genkeypair -storetype PKCS12 -keystore "$store" -alias fm26dash -keyalg RSA -keysize 3072 \
+                -validity 10950 -storepass "$(cat "$dir/password")" -keypass "$(cat "$dir/password")" -dname "CN=FM26 Dashboard, C=GB"
+            fi
+            pass=$(cat "$dir/password")
+          fi
+          echo "::add-mask::$pass"
+          echo "SIGNING_STORE_FILE=$store" >> "$GITHUB_ENV"
+          echo "SIGNING_PASSWORD=$pass" >> "$GITHUB_ENV"
+
+      - name: Build the APK
+        run: |
+          gradle -p fm26/android :app:assembleRelease --no-daemon
+          apk=fm26/android/app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$signer" verify --print-certs "$apk"
+          unzip -l "$apk" | grep -E "assets/dashboard.html"
+          cp "$apk" FM26Dashboard.apk
+          ls -la FM26Dashboard.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FM26Dashboard
+          path: |
+            FM26Dashboard.exe
+            FM26Dashboard.apk
+            fm26/LLM_Chat_image_link_prompt.md
+
+      - name: Put both on the download page
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fm26_dashboard
+          name: FM26 Dashboard
+          make_latest: false
+          overwrite_files: true
+          body: |
+            **FM26Dashboard.exe** for Windows: double click it. The dashboard opens on the right of your screen.
+            **FM26Dashboard.apk** for Android: a second screen. Pair it with the PC once (Settings on both).
+            **LLM_Chat_image_link_prompt.md**: give this to the LLM Chat build so it can take screen pictures.
+            Built from ${{ github.sha }}.
+          files: |
+            FM26Dashboard.exe
+            FM26Dashboard.apk
+            fm26/LLM_Chat_image_link_prompt.md
