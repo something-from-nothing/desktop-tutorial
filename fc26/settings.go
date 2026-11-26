@@ -27,12 +27,12 @@ type settings struct {
 	BridgeKey   string         `json:"bridgeKey"`
 	ClaudeEnc   string         `json:"claudeEnc,omitempty"`
 	Model       string         `json:"model"`
-	Auto        string         `json:"auto"`        // "off" (default) or "on"
-	AutoGap     int            `json:"autoGap"`     // seconds between automatic explanations
-	AutoPerHour int            `json:"autoPerHour"` // most automatic explanations in an hour
-	PhoneLink   string         `json:"phoneLink"`   // "on" once a phone is paired
-	Trial       string         `json:"trial"`       // "on": show the EA Play trial countdown
-	TrialHours  int            `json:"trialHours"`  // length of the trial (10 hours for FC 26)
+	Auto        string         `json:"auto"`            // "off" (default) or "on"
+	AutoGap     int            `json:"autoGap"`         // seconds between automatic explanations
+	AutoPerHour int            `json:"autoPerHour"`     // most automatic explanations in an hour
+	PhoneLink   string         `json:"phoneLinkSwitch"` // "on" (default): the phone link runs whenever the app does
+	Trial       string         `json:"trial"`           // "on": show the EA Play trial countdown
+	TrialHours  int            `json:"trialHours"`      // length of the trial (10 hours for FC 26)
 	Devices     []pairedDevice `json:"devices,omitempty"`
 }
 
@@ -42,7 +42,7 @@ var (
 )
 
 func defaultSettings() settings {
-	return settings{Model: "claude-sonnet-5-5", Auto: "off", AutoGap: 90, AutoPerHour: 12, PhoneLink: "off", Trial: "on", TrialHours: 10}
+	return settings{Model: "claude-sonnet-5-5", Auto: "off", AutoGap: 90, AutoPerHour: 12, PhoneLink: "on", Trial: "on", TrialHours: 10}
 }
 
 func settingsPath() string { return filepath.Join(appDir(), "settings.json") }
@@ -76,6 +76,9 @@ func clampSettings(s *settings) {
 	}
 	if s.Model == "" {
 		s.Model = "claude-sonnet-5-5"
+	}
+	if s.PhoneLink != "off" {
+		s.PhoneLink = "on"
 	}
 	if s.Trial != "off" {
 		s.Trial = "on"
@@ -160,6 +163,9 @@ func saveSettings(in map[string]string, fromPhone bool) error {
 		}
 		if fromPhone {
 			return nil
+		}
+		if v := in["phoneLink"]; v == "on" || v == "off" {
+			next.PhoneLink = v
 		}
 		if v, ok := in["bridgeKey"]; ok {
 			next.BridgeKey = strings.TrimSpace(v)

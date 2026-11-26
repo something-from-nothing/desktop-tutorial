@@ -703,7 +703,7 @@ func TestPhonePairingOverTLS(t *testing.T) {
 	if err := startLAN(lanHandler()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(forgetPhones)
+	t.Cleanup(stopLAN)
 	port := lanPortNum()
 	fp := pairingInfo()["fp"].(string)
 	base := fmt.Sprintf("https://127.0.0.1:%d", port)
@@ -815,9 +815,30 @@ func TestPhonePairingOverTLS(t *testing.T) {
 			t.Fatalf("discovery reply: %q %v", buf[:n], err)
 		}
 	}
-	// Forget phones closes the link.
+	// /hello answers without a token and says only who it is.
+	hr, err := client.Get(base + "/hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hello map[string]any
+	_ = json.NewDecoder(hr.Body).Decode(&hello)
+	hr.Body.Close()
+	if hello["app"] != "fc26dash" || hello["fp"] != fp || len(hello) != 5 {
+		t.Fatalf("hello: %v", hello)
+	}
+	// Forgetting phones removes them but keeps the link open for pairing again.
 	forgetPhones()
-	if _, err := client.Get(base + "/api/state"); err == nil {
+	if len(snapshotSettings().Devices) != 0 || get("/api/state", tok) != 403 {
+		t.Fatal("forgotten phone still accepted")
+	}
+	if r, err := client.Get(base + "/hello"); err != nil {
+		t.Fatal("link should stay open after forgetting phones")
+	} else {
+		r.Body.Close()
+	}
+	// The Phone link switch closes it.
+	stopLAN()
+	if _, err := client.Get(base + "/hello"); err == nil {
 		t.Fatal("link should be closed")
 	}
 }
@@ -878,5 +899,26 @@ func TestTrialCountdown(t *testing.T) {
 	mergeClub(&c2, out, 1)
 	if c2.TrialLeft == nil || c2.TrialLeft.V != 370 {
 		t.Fatalf("trial left not stored: %+v", c2.TrialLeft)
+	}
+}
+
+func TestPhoneLinkOnByDefault(t *testing.T) {
+	fresh(t)
+	if snapshotSettings().PhoneLink != "on" {
+		t.Fatal("phone link should default to on")
+	}
+	// Old settings files used "phoneLink":"off" after forgetting phones; that no longer turns it off.
+	os.WriteFile(settingsPath(), []byte(`{"phoneLink":"off","model":"claude-sonnet-5-5"}`), 0o600)
+	loadSettings()
+	if snapshotSettings().PhoneLink != "on" {
+		t.Fatal("old off value should not carry over")
+	}
+	_ = saveSettings(map[string]string{"phoneLink": "off"}, true)
+	if snapshotSettings().PhoneLink != "on" {
+		t.Fatal("the phone must not be able to switch the link off")
+	}
+	_ = saveSettings(map[string]string{"phoneLink": "off"}, false)
+	if snapshotSettings().PhoneLink != "off" {
+		t.Fatal("the PC switch should work")
 	}
 }

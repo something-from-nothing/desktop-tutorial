@@ -286,8 +286,8 @@ final class Host {
     // ---- the PC link ----
 
     private boolean pcLikelyUp() {
-        // After a failure, wait 20 seconds before trying the PC again, so the page stays quick.
-        return pcOk || System.currentTimeMillis() - pcFailedAt > 20000;
+        // After a failure, wait 6 seconds before trying the PC again, so the page stays quick.
+        return pcOk || System.currentTimeMillis() - pcFailedAt > 6000;
     }
 
     private void markDown() {
@@ -363,6 +363,7 @@ final class Host {
             case "/local/discover": {
                 JSONObject o = ok();
                 o.put("found", discover(1800));
+                o.put("phoneIps", new JSONArray(myAddresses()));
                 return o;
             }
             case "/local/pair":
@@ -378,8 +379,87 @@ final class Host {
         }
     }
 
-    /** Asks the home network "where is FC26 Dashboard?" and collects the answers. */
+    /** Finds FC26 Dashboard on the home network: a broadcast first, then a direct search. */
     private JSONArray discover(int waitMs) {
+        JSONArray out = broadcastDiscover(waitMs);
+        if (out.length() == 0) out = sweep();
+        return out;
+    }
+
+    /** This phone's own home network addresses (to show when nothing is found). */
+    private static java.util.List<String> myAddresses() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                    InetAddress a = ia.getAddress();
+                    if (a instanceof java.net.Inet4Address && a.isSiteLocalAddress()) out.add(a.getHostAddress());
+                }
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    /**
+     * Some routers and mesh WiFi drop broadcasts. This knocks on port 47830 on every address in the phone's own network, then asks anything that answers whether
+     * it's FC26 Dashboard (/hello). Home networks only; it takes a few seconds.
+     */
+    private JSONArray sweep() {
+        final JSONArray out = new JSONArray();
+        final Set<String> seen = Collections.synchronizedSet(new HashSet<>());
+        java.util.List<String> hosts = new java.util.ArrayList<>();
+        try {
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) continue;
+                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                    InetAddress a = ia.getAddress();
+                    if (!(a instanceof java.net.Inet4Address) || !a.isSiteLocalAddress()) continue;
+                    int prefix = Math.max(23, Math.min(30, ia.getNetworkPrefixLength()));
+                    byte[] b = a.getAddress();
+                    int ip = ((b[0] & 255) << 24) | ((b[1] & 255) << 16) | ((b[2] & 255) << 8) | (b[3] & 255);
+                    int mask = prefix == 0 ? 0 : -1 << (32 - prefix);
+                    int net = ip & mask, size = ~mask;
+                    for (int h = 1; h < size; h++) {
+                        int x = net | h;
+                        if (x == ip) continue;
+                        hosts.add(((x >>> 24) & 255) + "." + ((x >>> 16) & 255) + "." + ((x >>> 8) & 255) + "." + (x & 255));
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        ExecutorService ex = Executors.newFixedThreadPool(64);
+        java.util.List<java.util.concurrent.Future<?>> jobs = new java.util.ArrayList<>();
+        for (final String h : hosts) {
+            for (final int port : new int[]{47830}) {
+                jobs.add(ex.submit(() -> {
+                    try (java.net.Socket s = new java.net.Socket()) {
+                        s.connect(new java.net.InetSocketAddress(h, port), 350);
+                    } catch (Exception e) {
+                        return;
+                    }
+                    try {
+                        String fp = fetchFingerprint(h, port);
+                        JSONObject r = new JSONObject(https(h, port, fp, "GET", "/hello", "", "", 3000));
+                        if ("fc26dash".equals(r.optString("app")) && fp.equalsIgnoreCase(r.optString("fp")) && seen.add(h)) {
+                            r.put("host", h);
+                            r.put("port", port);
+                            r.put("via", "search");
+                            synchronized (out) { out.put(r); }
+                        }
+                    } catch (Exception ignored) { }
+                }));
+            }
+        }
+        for (java.util.concurrent.Future<?> f : jobs) {
+            try { f.get(15, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception ignored) { }
+        }
+        ex.shutdownNow();
+        return out;
+    }
+
+    /** Asks the home network "where is FC26 Dashboard?" by broadcast and collects the answers. */
+    private JSONArray broadcastDiscover(int waitMs) {
         JSONArray out = new JSONArray();
         Set<String> seen = new HashSet<>();
         try (DatagramSocket s = new DatagramSocket()) {
@@ -416,9 +496,12 @@ final class Host {
     }
 
     /** The PC's address changed (DHCP): find the same PC (same certificate) again. */
+    private volatile long lastRediscover = 0;
+
     private synchronized void rediscover() {
         String fp = prefs.getString("pcFp", "");
-        if (fp.isEmpty()) return;
+        if (fp.isEmpty() || System.currentTimeMillis() - lastRediscover < 30000) return;
+        lastRediscover = System.currentTimeMillis();
         JSONArray found = discover(1500);
         for (int i = 0; i < found.length(); i++) {
             JSONObject r = found.optJSONObject(i);

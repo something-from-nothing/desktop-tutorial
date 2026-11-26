@@ -235,9 +235,12 @@ label.f{display:block;margin:10px 0 4px;font-size:12.5px;color:var(--muted)}
 
     <div class="pcOnly">
       <h3>Phone</h3>
-      <div id="phoneBox" class="sub">No phone paired.</div>
-      <div class="btns"><button class="b" id="pairBtn">Pair a phone</button><button class="b" id="forgetBtn">Forget all phones</button></div>
-      <div class="note">The phone link works on your home WiFi only and is encrypted. Windows may ask about the firewall the first time: tick Private networks only.</div>
+      <label class="f">Phone link</label>
+      <select id="sPhoneLink"><option value="on">On (phones on my home WiFi can find this PC)</option><option value="off">Off</option></select>
+      <div id="phoneBox" class="sub" style="margin-top:8px">No phone paired.</div>
+      <div id="fwBox"></div>
+      <div class="btns"><button class="b primary" id="pairBtn">Pair a phone</button><button class="b hide" id="fwBtn">Fix firewall for the phone</button><button class="b" id="forgetBtn">Forget all phones</button></div>
+      <div class="note">The phone link only answers devices on your home network, and it is encrypted. Forgetting phones keeps the link on so you can pair again.</div>
     </div>
 
     <div class="phoneOnly">
@@ -502,6 +505,17 @@ function renderSteam(st) {
 function renderPhone(st) {
   const p = st.phone || {}; const devs = S.settings.devices || [];
   let h = devs.length ? 'Paired: ' + devs.map(d => esc(d.name) + ' (seen ' + ago(d.lastSeen) + ')').join(', ') + '.' : 'No phone paired.';
+  if (p.switch === 'off') h += '<div class="warnline">The phone link is off, so your phone can\'t find or reach this PC.</div>';
+  else if (p.error) h += '<div class="err">' + esc(p.error) + '</div>';
+  else if (p.on) h += '<div class="from">Link on at ' + ((p.addresses || []).map(a => esc(a) + ':' + p.port).join(' or ') || 'port ' + p.port) + '</div>';
+  const fw = p.firewall || {}; let fh = '';
+  if (fw.supported && !fw.checking && p.switch !== 'off') {
+    if (fw.blocked) fh = '<div class="warnline">Windows Firewall has a rule blocking this app, so your phone can\'t connect. Press Fix firewall (Windows will ask you to approve).</div>';
+    else if (!fw.rule && fw.public) fh = '<div class="warnline">Windows treats your WiFi (' + esc(fw.networks || '') + ') as a Public network, which blocks phones from reaching this PC. Press Fix firewall (Windows will ask you to approve). It only lets in devices on your own network.</div>';
+    else if (!fw.rule) fh = '<div class="sub">If the phone can\'t find this PC, press Fix firewall.</div>';
+  }
+  $('fwBtn').classList.toggle('hide', !(fw.supported && !fw.rule && p.switch !== 'off'));
+  if ($('fwBox').dataset.h !== fh) { $('fwBox').innerHTML = fh; $('fwBox').dataset.h = fh; }
   if (p.code) h += '<div class="code">' + esc(p.code) + '</div><div>On the phone: FC26 Dashboard, Settings, Find my PC, then type this code. It works for 5 minutes.</div><div>If the phone can\'t find this PC, type ' + ((p.addresses || []).length ? '<b>' + p.addresses.map(a => esc(a) + ':' + p.port).join('</b> or <b>') + '</b>' : 'this PC\'s WiFi address followed by <b>:' + p.port + '</b>') + '.</div><div class="from">Link fingerprint ' + esc((p.fp || '').slice(0, 16)) + '</div>';
   if ($('phoneBox').dataset.h !== h) { $('phoneBox').innerHTML = h; $('phoneBox').dataset.h = h; }
 }
@@ -509,7 +523,7 @@ function renderPhone(st) {
 // ---- polling ----
 async function poll() {
   try { const st = await get('/api/state'); if (st && st.version) render(st); } catch (e) { $('seen').textContent = 'Not connected'; }
-  setTimeout(poll, PHONE ? 4000 : 2000);
+  setTimeout(poll, PHONE ? 3000 : 2000);
 }
 
 // ---- actions ----
@@ -581,6 +595,7 @@ async function loadSettings() {
     $('sSteamKey').value = ''; $('sSteamKey').placeholder = s.hasSteamKey ? 'Saved. Leave blank to keep it' : 'Paste your key';
     $('sSteamWho').textContent = s.steamId ? 'Signed in as ' + (s.steamName || 'Steam ID ' + s.steamId) + '.' : 'Not signed in.';
     $('steamSignOut').classList.toggle('hide', !s.steamId);
+    $('sPhoneLink').value = s.phoneLink || 'on';
   } else {
     $('pcLinkBox').textContent = s.pc ? 'Paired with ' + s.pc + (s.pcReachable ? ' (reachable now)' : ' (not reachable right now)') + '.' : 'Not paired.';
     $('unpairPc').classList.toggle('hide', !s.pc);
@@ -602,13 +617,18 @@ $('test').onclick = async () => { $('saveNote').textContent = 'Testing'; const r
 $('resetWeak').onclick = async () => { if (!confirmReset()) return; await post('/api/weak', { reset: true }); $('quiz').innerHTML = ''; toast('Weak topics cleared'); poll1(); };
 function confirmReset() { if (S.resetArmed && Date.now() - S.resetArmed < 4000) return true; S.resetArmed = Date.now(); toast('Press Clear weak topics again to confirm'); return false; }
 $('pairBtn').onclick = async () => { const r = await post('/api/phone', { do: 'pair' }); if (!r || !r.ok) toast('Couldn\'t open the phone link: ' + ((r && r.error) || '')); poll1(); };
-$('forgetBtn').onclick = async () => { await post('/api/phone', { do: 'forget' }); toast('Phones forgotten. The phone link is closed.'); loadSettings(); poll1(); };
+$('forgetBtn').onclick = async () => { if (!confirmForget()) return; await post('/api/phone', { do: 'forget' }); toast('Phones forgotten. The link is still on, so you can pair again.'); loadSettings(); poll1(); };
+function confirmForget() { if (S.forgetArmed && Date.now() - S.forgetArmed < 4000) return true; S.forgetArmed = Date.now(); toast('Press Forget all phones again to confirm'); return false; }
+$('fwBtn').onclick = async () => { toast('Windows will ask you to approve the change.'); const r = await post('/api/phone', { do: 'firewall' }); toast(r && r.ok ? 'Firewall fixed. Try Find my PC on the phone.' : 'Not changed: ' + ((r && r.error) || '')); poll1(); };
+$('sPhoneLink').onchange = async () => { await post('/api/settings', { phoneLink: $('sPhoneLink').value }); loadSettings(); poll1(); };
 // Phone side
 $('findPc').onclick = async () => {
   $('found').innerHTML = '<p class="sub"><span class="spin"></span>Looking on your WiFi</p>';
   const r = await post('/local/discover');
   const list = (r && r.found) || [];
-  $('found').innerHTML = list.length ? list.map((p, i) => '<div class="sub">Found <b>' + esc(p.name) + '</b> at ' + esc(p.host + ':' + p.port) + (p.pairing ? ' (waiting for a code)' : '') + ' <button class="b" data-i="' + i + '">Use this PC</button></div>').join('') : '<p class="sub">No PC found. Check the PC is on the same WiFi with FC26 Dashboard open, or type its address below.</p>';
+  const me = (r && r.phoneIps || []).join(' or ');
+  $('found').innerHTML = list.length ? list.map((p, i) => '<div class="sub">Found <b>' + esc(p.name) + '</b> at ' + esc(p.host + ':' + p.port) + (p.via === 'search' ? ' (by searching the network)' : '') + '. ' + (p.pairing ? 'It is showing a code: type it below.' : 'Now press <b>Pair a phone</b> on the PC to get a code.') + ' <button class="b" data-i="' + i + '">Use this PC</button></div>').join('')
+    : '<p class="sub">No PC found' + (me ? ' (this phone is at ' + esc(me) + ')' : '') + '. Check that FC26 Dashboard is open on the PC, its Phone link is on, and the PC and phone are on the same WiFi, not a guest network. If the PC shows a firewall warning in Settings, press Fix firewall there. You can also type the PC address shown in its Settings.</p>';
   $('found').querySelectorAll('button[data-i]').forEach(b => b.onclick = () => { const p = list[+b.dataset.i]; $('pcAddr').value = p.host + ':' + p.port; S.fp = p.fp; $('pcCode').focus(); });
 };
 $('pairPc').onclick = async () => {

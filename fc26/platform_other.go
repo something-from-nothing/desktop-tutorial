@@ -68,3 +68,6 @@ func init() {
 }
 
 func maybeInstall() bool { return false }
+
+func firewallInfo() map[string]any { return map[string]any{"supported": false} }
+func fixFirewall() error           { return errors.New("only on Windows") }

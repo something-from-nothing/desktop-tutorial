@@ -293,6 +293,17 @@ func checkPair(code string) bool {
 	return false
 }
 
+// handleHello lets a phone that found this port by searching the network check it really is
+// FC26 Dashboard. It says nothing private: the PC's name, the link's fingerprint and whether a
+// pairing code is showing.
+func handleHello(w http.ResponseWriter, r *http.Request) {
+	if !privateIP(remoteIP(r.RemoteAddr)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	writeJSON(w, map[string]any{"app": "fc26dash", "name": hostName(), "port": lanPortNum(), "fp": lanFP, "pairing": pairingActive()})
+}
+
 func handlePair(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Code   string `json:"code"`
@@ -316,7 +327,6 @@ func handlePair(w http.ResponseWriter, r *http.Request) {
 		if len(s.Devices) > 5 {
 			s.Devices = s.Devices[len(s.Devices)-5:]
 		}
-		s.PhoneLink = "on"
 		return nil
 	})
 	if err != nil {
@@ -359,12 +369,20 @@ func phoneAuthed(r *http.Request) bool {
 	return false
 }
 
+// forgetPhones removes every paired phone. The link itself stays on (so a phone can pair again)
+// unless the Phone link switch is off.
 func forgetPhones() {
 	_ = updateSettings(func(s *settings) error {
 		s.Devices = nil
-		s.PhoneLink = "off"
 		return nil
 	})
+	lanMu.Lock()
+	pairCode = ""
+	lanMu.Unlock()
+}
+
+// stopLAN closes the phone link (Phone link switch turned off).
+func stopLAN() {
 	lanMu.Lock()
 	if lanLn != nil {
 		lanLn.Close()

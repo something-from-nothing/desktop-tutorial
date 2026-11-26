@@ -135,7 +135,11 @@ func stateFor(local bool) map[string]any {
 		"steamSignedIn": s.SteamID != "", "steamName": s.SteamName, "hasSteamKey": s.SteamKeyEnc != "",
 	}
 	if local {
-		st["phone"] = pairingInfo()
+		p := pairingInfo()
+		p["switch"] = s.PhoneLink
+		p["error"] = lanErr
+		p["firewall"] = firewallInfo()
+		st["phone"] = p
 	}
 	return st
 }
@@ -165,6 +169,9 @@ func api(mux *http.ServeMux, auth func(*http.Request) bool, fromPhone bool) {
 			}
 			if in["steamKey"] != "" || in["steamSignOut"] == "1" {
 				refreshSteamNow()
+			}
+			if !fromPhone && in["phoneLink"] != "" {
+				applyPhoneLink()
 			}
 			bumpSeq()
 			writeJSON(w, map[string]any{"ok": true})
@@ -339,6 +346,11 @@ func localRoutes(mux *http.ServeMux, base string) {
 			newPairCode()
 		case "forget":
 			forgetPhones()
+		case "firewall":
+			if err := fixFirewall(); err != nil {
+				writeJSON(w, map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
 		}
 		bumpSeq()
 		writeJSON(w, map[string]any{"ok": true, "phone": pairingInfo()})
@@ -366,6 +378,22 @@ func localRoutes(mux *http.ServeMux, base string) {
 	})
 }
 
+// applyPhoneLink starts or stops the phone link to match the Phone link switch.
+var lanErr string
+
+func applyPhoneLink() {
+	if snapshotSettings().PhoneLink == "on" {
+		if err := startLAN(lanHandler()); err != nil {
+			lanErr = err.Error()
+		} else {
+			lanErr = ""
+		}
+	} else {
+		stopLAN()
+	}
+	bumpSeq()
+}
+
 var (
 	signinMu     sync.Mutex
 	signinNonces = map[string]string{}
@@ -386,6 +414,7 @@ func htmlEsc(s string) string {
 // lanHandler serves the phone: the same API, with the phone's token instead of the window's.
 func lanHandler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/hello", handleHello)
 	mux.HandleFunc("/pair", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || !privateIP(remoteIP(r.RemoteAddr)) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -437,9 +466,7 @@ func main() {
 	loadSteamCache()
 	mux := http.NewServeMux()
 	localRoutes(mux, base)
-	if snapshotSettings().PhoneLink == "on" && len(snapshotSettings().Devices) > 0 {
-		_ = startLAN(lanHandler())
-	}
+	applyPhoneLink()
 	go ensureShortcut()
 	go watchLoop()
 	go steamLoop()
